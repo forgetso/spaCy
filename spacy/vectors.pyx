@@ -19,7 +19,7 @@ from .strings import get_string_id
 from .compat import basestring_, path2str
 from .errors import Errors
 from . import util
-
+from multiprocessing import shared_memory, Lock
 
 def unpickle_vectors(bytes_data):
     return Vectors().from_bytes(bytes_data)
@@ -56,9 +56,11 @@ cdef class Vectors:
     cdef public object name
     cdef public object data
     cdef public object key2row
+    cdef public object _shared_memory_name
+    cdef public object _shared_memory_shape
     cdef cppset[int] _unset
 
-    def __init__(self, *, shape=None, data=None, keys=None, name=None):
+    def __init__(self, *, shape=None, data=None, keys=None, name=None, shared_memory_name=None, shared_memory_shape=None):
         """Create a new vector store.
 
         shape (tuple): Size of the table, as (# entries, # columns)
@@ -70,6 +72,8 @@ cdef class Vectors:
         DOCS: https://spacy.io/api/vectors#init
         """
         self.name = name
+        self._shared_memory_shape = None
+        self._shared_memory_name = None
         if data is None:
             if shape is None:
                 shape = (0,0)
@@ -83,6 +87,30 @@ cdef class Vectors:
         if keys is not None:
             for i, key in enumerate(keys):
                 self.add(key, row=i)
+
+    @property
+    def shared_memory_name(self):
+        return self._shared_memory_name
+
+    @shared_memory_name.setter
+    def shared_memory_name(self, value):
+        self._shared_memory_name = value
+
+    @shared_memory_name.deleter
+    def shared_memory_name(self):
+        del self._shared_memory_name
+
+    @property
+    def shared_memory_shape(self):
+        return self._shared_memory_shape
+
+    @shared_memory_shape.setter
+    def shared_memory_shape(self, value):
+        self._shared_memory_shape = value
+
+    @shared_memory_shape.deleter
+    def shared_memory_shape(self):
+        del self._shared_memory_shape
 
     @property
     def shape(self):
@@ -199,6 +227,8 @@ cdef class Vectors:
 
         DOCS: https://spacy.io/api/vectors#resize
         """
+        lock = Lock()
+        lock.acquire()
         xp = get_array_module(self.data)
         if inplace:
             if shape[1] != self.data.shape[1]:
@@ -218,6 +248,7 @@ cdef class Vectors:
             if row >= shape[0]:
                 self.key2row.pop(key)
                 removed_items.append((key, row))
+        lock.release()
         return removed_items
 
     def keys(self):
@@ -293,6 +324,8 @@ cdef class Vectors:
         """
         # use int for all keys and rows in key2row for more efficient access
         # and serialization
+        lock = Lock()
+        lock.acquire()
         key = int(get_string_id(key))
         if row is not None:
             row = int(row)
@@ -311,6 +344,7 @@ cdef class Vectors:
             self.data[row] = vector
         if self._unset.count(row):
             self._unset.erase(self._unset.find(row))
+        lock.release()
         return row
 
     def most_similar(self, queries, *, batch_size=1024, n=1, sort=True):
@@ -357,7 +391,7 @@ cdef class Vectors:
                 sorted_index = xp.arange(scores.shape[0])[:,None][i:i+batch_size],xp.argsort(scores[i:i+batch_size], axis=1)[:,::-1]
                 scores[i:i+batch_size] = scores[sorted_index]
                 best_rows[i:i+batch_size] = best_rows[sorted_index]
-        
+
         for i, j in numpy.ndindex(best_rows.shape):
             best_rows[i, j] = filled[best_rows[i, j]]
         # Round values really close to 1 or -1
@@ -366,7 +400,7 @@ cdef class Vectors:
         scores = xp.clip(scores, a_min=-1, a_max=1, out=scores)
         row2key = {row: key for key, row in self.key2row.items()}
         keys = xp.asarray(
-            [[row2key[row] for row in best_rows[i] if row in row2key] 
+            [[row2key[row] for row in best_rows[i] if row in row2key]
                     for i in range(len(queries)) ], dtype="uint64")
         return (keys, best_rows, scores)
 
@@ -421,8 +455,13 @@ cdef class Vectors:
 
         def load_vectors(path):
             xp = Model.ops.xp
-            if path.exists():
-                self.data = xp.load(str(path))
+            self.data = self.get_data_from_shared_memory()
+            if self.data is None:
+                if path.exists():
+                    data = xp.load(str(path))
+                    shm, shape = self.create_shared_block(data)
+                    self.shared_memory_name = shm.name
+                    self.shared_memory_shape = shape
 
         serializers = OrderedDict((
             ("vectors", load_vectors),
@@ -479,3 +518,18 @@ cdef class Vectors:
     def _sync_unset(self):
         filled = {row for row in self.key2row.values()}
         self._unset = cppset[int]({row for row in range(self.data.shape[0]) if row not in filled})
+
+    def create_shared_block(self, to_share):
+        xp = Model.ops.xp
+        shm = shared_memory.SharedMemory(create=True, size=to_share.nbytes)
+        # Now create a NumPy array backed by shared memory
+        np_array = xp.ndarray(to_share.shape, dtype='f', buffer=shm.buf)
+        # Copy the original data into shared memory
+        np_array[:] = to_share[:]
+        return shm, np_array.shape
+
+    def get_data_from_shared_memory(self):
+        xp = Model.ops.xp
+        if self.shared_memory_name is not None and self.shared_memory_shape is not None:
+            existing_shm = shared_memory.SharedMemory(name=self.shared_memory_name)
+            self.data = xp.ndarray(self.shared_memory_shape, dtype='f', buffer=existing_shm.buf)
