@@ -4,7 +4,7 @@ from __future__ import unicode_literals
 cimport numpy as np
 from cython.operator cimport dereference as deref
 from libcpp.set cimport set as cppset
-
+import os
 import functools
 import numpy
 from collections import OrderedDict
@@ -60,7 +60,8 @@ cdef class Vectors:
     cdef public object _shared_memory_shape
     cdef cppset[int] _unset
 
-    def __init__(self, *, shape=None, data=None, keys=None, name=None, shared_memory_name=None, shared_memory_shape=None):
+    def __init__(self, *, shape=None, data=None, keys=None, name=None, shared_memory_name=None,
+                 shared_memory_shape=None):
         """Create a new vector store.
 
         shape (tuple): Size of the table, as (# entries, # columns)
@@ -376,7 +377,7 @@ cdef class Vectors:
         scores = xp.zeros((queries.shape[0], n), dtype='f')
         # Work in batches, to avoid memory problems.
         for i in range(0, queries.shape[0], batch_size):
-            batch = queries[i : i+batch_size]
+            batch = queries[i: i + batch_size]
             batch_norms = xp.linalg.norm(batch, axis=1, keepdims=True)
             batch_norms[batch_norms == 0] = 1
             batch /= batch_norms
@@ -384,13 +385,14 @@ cdef class Vectors:
             # vectors e.g. (10000, 300)
             # sims    e.g. (1024, 10000)
             sims = xp.dot(batch, vectors.T)
-            best_rows[i:i+batch_size] = xp.argpartition(sims, -n, axis=1)[:,-n:]
-            scores[i:i+batch_size] = xp.partition(sims, -n, axis=1)[:,-n:]
+            best_rows[i:i + batch_size] = xp.argpartition(sims, -n, axis=1)[:, -n:]
+            scores[i:i + batch_size] = xp.partition(sims, -n, axis=1)[:, -n:]
 
             if sort and n >= 2:
-                sorted_index = xp.arange(scores.shape[0])[:,None][i:i+batch_size],xp.argsort(scores[i:i+batch_size], axis=1)[:,::-1]
-                scores[i:i+batch_size] = scores[sorted_index]
-                best_rows[i:i+batch_size] = best_rows[sorted_index]
+                sorted_index = xp.arange(scores.shape[0])[:, None][i:i + batch_size], xp.argsort(
+                    scores[i:i + batch_size], axis=1)[:, ::-1]
+                scores[i:i + batch_size] = scores[sorted_index]
+                best_rows[i:i + batch_size] = best_rows[sorted_index]
 
         for i, j in numpy.ndindex(best_rows.shape):
             best_rows[i, j] = filled[best_rows[i, j]]
@@ -401,7 +403,7 @@ cdef class Vectors:
         row2key = {row: key for key, row in self.key2row.items()}
         keys = xp.asarray(
             [[row2key[row] for row in best_rows[i] if row in row2key]
-                    for i in range(len(queries)) ], dtype="uint64")
+             for i in range(len(queries))], dtype="uint64")
         return (keys, best_rows, scores)
 
     def to_disk(self, path, **kwargs):
@@ -455,13 +457,14 @@ cdef class Vectors:
 
         def load_vectors(path):
             xp = Model.ops.xp
-            self.data = self.get_data_from_shared_memory()
-            if self.data is None:
+            self.get_data_from_shared_memory()
+            if self.data.shape == (0, 0):
                 if path.exists():
                     data = xp.load(str(path))
                     shm, shape = self.create_shared_block(data)
                     self.shared_memory_name = shm.name
                     self.shared_memory_shape = shape
+                    self.get_data_from_shared_memory()
 
         serializers = OrderedDict((
             ("vectors", load_vectors),
