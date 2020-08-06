@@ -73,8 +73,9 @@ cdef class Vectors:
         DOCS: https://spacy.io/api/vectors#init
         """
         self.name = name
-        self._shared_memory_shape = None
-        self._shared_memory_name = None
+        self._shared_memory_shape = shared_memory_shape
+        self._shared_memory_name = shared_memory_name
+        self.get_data_from_shared_memory()
         if data is None:
             if shape is None:
                 shape = (0,0)
@@ -536,3 +537,8 @@ cdef class Vectors:
         if self.shared_memory_name is not None and self.shared_memory_shape is not None:
             existing_shm = shared_memory.SharedMemory(name=self.shared_memory_name)
             self.data = xp.ndarray(self.shared_memory_shape, dtype='f', buffer=existing_shm.buf)
+
+    def close_shared_memory(self, shared):
+        if self.shared_memory_name is not None:
+            sh_m = shared_memory.SharedMemory(name=self.shared_memory_name)
+            sh_m.close()

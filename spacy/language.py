@@ -75,6 +75,8 @@ class BaseDefaults(object):
             tag_map=cls.tag_map,
             lemmatizer=lemmatizer,
             lookups=lookups,
+            vectors_shared_name=cls.vectors_shared_name,
+            vectors_shared_shape=cls.vectors_shared_shape,
         )
         vocab.lex_attr_getters[NORM] = util.add_lookups(
             vocab.lex_attr_getters.get(NORM, LEX_ATTRS[NORM]),
@@ -128,6 +130,8 @@ class BaseDefaults(object):
     writing_system = {"direction": "ltr", "has_case": True, "has_letters": True}
     single_orth_variants = []
     paired_orth_variants = []
+    vectors_shared_name = None
+    vectors_shared_shape = None
 
 
 class Language(object):
@@ -172,6 +176,8 @@ class Language(object):
         self.factories.update(user_factories)
         self._meta = dict(meta)
         self._path = None
+        self.vectors_shared_name = kwargs.get('vectors_shared_name')
+        self.vectors_shared_shape = kwargs.get('vectors_shared_shape')
         if vocab is True:
             factory = self.Defaults.create_vocab
             vocab = factory(self, **meta.get("vocab", {}))

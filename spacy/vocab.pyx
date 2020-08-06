@@ -34,7 +34,8 @@ cdef class Vocab:
     """
     def __init__(self, lex_attr_getters=None, tag_map=None, lemmatizer=None,
                  strings=tuple(), lookups=None, lookups_extra=None,
-                 oov_prob=-20., vectors_name=None, **deprecated_kwargs):
+                 oov_prob=-20., vectors_name=None, vectors_shared_name=None,
+                 vectors_shared_shape=None, **deprecated_kwargs):
         """Create the vocabulary.
 
         lex_attr_getters (dict): A dictionary mapping attribute IDs to
@@ -48,6 +49,8 @@ cdef class Vocab:
         lookups_extra (Lookups): Container for optional lookup tables and dictionaries.
         oov_prob (float): Default OOV probability.
         vectors_name (unicode): Optional name to identify the vectors table.
+        vectors_shared_name (str): Optional shared memory identifier for vectors.data
+        vectors_shared_shape (tuple (x, y)): Optional shape of shared vectors.data array
         RETURNS (Vocab): The newly constructed object.
         """
         lex_attr_getters = lex_attr_getters if lex_attr_getters is not None else {}
@@ -70,7 +73,8 @@ cdef class Vocab:
                 _ = self[string]
         self.lex_attr_getters = lex_attr_getters
         self.morphology = Morphology(self.strings, tag_map, lemmatizer)
-        self.vectors = Vectors(name=vectors_name)
+        self.vectors = Vectors(name=vectors_name, shared_memory_name=vectors_shared_name,
+                               shared_memory_shape=vectors_shared_shape)
         self.lookups = lookups
         self.lookups_extra = lookups_extra
 
