@@ -1,7 +1,7 @@
 # cython: infer_types=True, profile=True, binding=True
 from typing import Optional
 import numpy
-from thinc.api import CosineDistance, to_categorical, to_categorical, Model, Config
+from thinc.api import CosineDistance, to_categorical, Model, Config
 from thinc.api import set_dropout_rate
 
 from ..tokens.doc cimport Doc
@@ -9,7 +9,7 @@ from ..tokens.doc cimport Doc
 from .pipe import Pipe
 from .tagger import Tagger
 from ..language import Language
-from ..syntax import nonproj
+from ._parser_internals import nonproj
 from ..attrs import POS, ID
 from ..errors import Errors
 
@@ -29,7 +29,6 @@ embed_size = 2000
 window_size = 1
 maxout_pieces = 2
 subword_features = true
-dropout = null
 """
 DEFAULT_MT_MODEL = Config().from_str(default_model_config)["model"]
 
@@ -211,7 +210,7 @@ class ClozeMultitask(Pipe):
             predictions, bp_predictions = self.model.begin_update([eg.predicted for eg in examples])
         except AttributeError:
             types = set([type(eg) for eg in examples])
-            raise TypeError(Errors.E978.format(name="ClozeMultitask", method="rehearse", types=types))
+            raise TypeError(Errors.E978.format(name="ClozeMultitask", method="rehearse", types=types)) from None
         loss, d_predictions = self.get_loss(examples, self.vocab.vectors.data, predictions)
         bp_predictions(d_predictions)
         if sgd is not None:
@@ -219,3 +218,6 @@ class ClozeMultitask(Pipe):
 
         if losses is not None:
             losses[self.name] += loss
+
+    def add_label(self, label):
+        raise NotImplementedError

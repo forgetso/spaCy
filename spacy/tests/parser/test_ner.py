@@ -5,7 +5,7 @@ from spacy.lang.en import English
 
 from spacy.language import Language
 from spacy.lookups import Lookups
-from spacy.syntax.ner import BiluoPushDown
+from spacy.pipeline._parser_internals.ner import BiluoPushDown
 from spacy.gold import Example
 from spacy.tokens import Doc
 from spacy.vocab import Vocab
@@ -144,10 +144,7 @@ def test_accept_blocked_token():
     # 1. test normal behaviour
     nlp1 = English()
     doc1 = nlp1("I live in New York")
-    config = {
-        "learn_tokens": False,
-        "min_action_freq": 30,
-    }
+    config = {}
     ner1 = nlp1.create_pipe("ner", config=config)
     assert [token.ent_iob_ for token in doc1] == ["", "", "", "", ""]
     assert [token.ent_type_ for token in doc1] == ["", "", "", "", ""]
@@ -166,10 +163,7 @@ def test_accept_blocked_token():
     # 2. test blocking behaviour
     nlp2 = English()
     doc2 = nlp2("I live in New York")
-    config = {
-        "learn_tokens": False,
-        "min_action_freq": 30,
-    }
+    config = {}
     ner2 = nlp2.create_pipe("ner", config=config)
 
     # set "New York" to a blocked entity
@@ -210,7 +204,7 @@ def test_train_empty():
     nlp.begin_training()
     for itn in range(2):
         losses = {}
-        batches = util.minibatch(train_examples)
+        batches = util.minibatch(train_examples, size=8)
         for batch in batches:
             nlp.update(batch, losses=losses)
 
@@ -224,10 +218,7 @@ def test_overwrite_token():
     assert [token.ent_iob_ for token in doc] == ["O", "O", "O", "O", "O"]
     assert [token.ent_type_ for token in doc] == ["", "", "", "", ""]
     # Check that a new ner can overwrite O
-    config = {
-        "learn_tokens": False,
-        "min_action_freq": 30,
-    }
+    config = {}
     ner2 = nlp.create_pipe("ner", config=config)
     ner2.moves.add_action(5, "")
     ner2.add_label("GPE")

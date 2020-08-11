@@ -29,9 +29,15 @@ embed_size = 300
 window_size = 1
 maxout_pieces = 3
 subword_features = true
-dropout = null
 """
 DEFAULT_NEL_MODEL = Config().from_str(default_model_config)["model"]
+
+default_kb_config = """
+[kb]
+@assets = "spacy.EmptyKB.v1"
+entity_vector_length = 64
+"""
+DEFAULT_NEL_KB = Config().from_str(default_kb_config)["kb"]
 
 
 @Language.factory(
@@ -39,23 +45,33 @@ DEFAULT_NEL_MODEL = Config().from_str(default_model_config)["model"]
     requires=["doc.ents", "doc.sents", "token.ent_iob", "token.ent_type"],
     assigns=["token.ent_kb_id"],
     default_config={
-        "kb": None,  # TODO - what kind of default makes sense here?
+        "kb": DEFAULT_NEL_KB,
+        "model": DEFAULT_NEL_MODEL,
         "labels_discard": [],
         "incl_prior": True,
         "incl_context": True,
-        "model": DEFAULT_NEL_MODEL,
     },
 )
 def make_entity_linker(
     nlp: Language,
     name: str,
     model: Model,
-    kb: Optional[KnowledgeBase],
+    kb: KnowledgeBase,
     *,
     labels_discard: Iterable[str],
     incl_prior: bool,
     incl_context: bool,
 ):
+    """Construct an EntityLinker component.
+
+    model (Model[List[Doc], Floats2d]): A model that learns document vector
+        representations. Given a batch of Doc objects, it should return a single
+        array, with one row per item in the batch.
+    kb (KnowledgeBase): The knowledge-base to link entities to.
+    labels_discard (Iterable[str]): NER labels that will automatically get a "NIL" prediction.
+    incl_prior (bool): Whether or not to include prior probabilities from the KB in the model.
+    incl_context (bool): Whether or not to include the local context in the model.
+    """
     return EntityLinker(
         nlp.vocab,
         model,
@@ -92,10 +108,10 @@ class EntityLinker(Pipe):
         model (thinc.api.Model): The Thinc Model powering the pipeline component.
         name (str): The component instance name, used to add entries to the
             losses during training.
-        kb (KnowledgeBase): TODO:
-        labels_discard (Iterable[str]): TODO:
-        incl_prior (bool): TODO:
-        incl_context (bool): TODO:
+        kb (KnowledgeBase): The KnowledgeBase holding all entities and their aliases.
+        labels_discard (Iterable[str]): NER labels that will automatically get a "NIL" prediction.
+        incl_prior (bool): Whether or not to include prior probabilities from the KB in the model.
+        incl_context (bool): Whether or not to include the local context in the model.
 
         DOCS: https://spacy.io/api/entitylinker#init
         """
@@ -108,14 +124,12 @@ class EntityLinker(Pipe):
             "incl_prior": incl_prior,
             "incl_context": incl_context,
         }
-        self.kb = kb
-        if self.kb is None:
-            # create an empty KB that should be filled by calling from_disk
-            self.kb = KnowledgeBase(vocab=vocab)
-        else:
-            del cfg["kb"]  # we don't want to duplicate its serialization
-        if not isinstance(self.kb, KnowledgeBase):
+        if not isinstance(kb, KnowledgeBase):
             raise ValueError(Errors.E990.format(type=type(self.kb)))
+        kb.initialize(vocab)
+        self.kb = kb
+        if "kb" in cfg:
+            del cfg["kb"]  # we don't want to duplicate its serialization
         self.cfg = dict(cfg)
         self.distance = CosineDistance(normalize=False)
         # how many neightbour sentences to take into account
@@ -190,7 +204,7 @@ class EntityLinker(Pipe):
             types = set([type(eg) for eg in examples])
             raise TypeError(
                 Errors.E978.format(name="EntityLinker", method="update", types=types)
-            )
+            ) from None
         if set_annotations:
             # This seems simpler than other ways to get that exact output -- but
             # it does run the model twice :(
@@ -208,7 +222,7 @@ class EntityLinker(Pipe):
                         sent_index = sentences.index(ent.sent)
                     except AttributeError:
                         # Catch the exception when ent.sent is None and provide a user-friendly warning
-                        raise RuntimeError(Errors.E030)
+                        raise RuntimeError(Errors.E030) from None
                     # get n previous sentences, if there are any
                     start_sentence = max(0, sent_index - self.n_sents)
                     # get n posterior sentences, or as many < n as there are
@@ -222,9 +236,9 @@ class EntityLinker(Pipe):
         set_dropout_rate(self.model, drop)
         if not sentence_docs:
             warnings.warn(Warnings.W093.format(name="Entity Linker"))
-            return 0.0
+            return losses
         sentence_encodings, bp_context = self.model.begin_update(sentence_docs)
-        loss, d_scores = self.get_similarity_loss(
+        loss, d_scores = self.get_loss(
             sentence_encodings=sentence_encodings, examples=examples
         )
         bp_context(d_scores)
@@ -235,7 +249,7 @@ class EntityLinker(Pipe):
             self.set_annotations(docs, predictions)
         return losses
 
-    def get_similarity_loss(self, examples: Iterable[Example], sentence_encodings):
+    def get_loss(self, examples: Iterable[Example], sentence_encodings):
         entity_encodings = []
         for eg in examples:
             kb_ids = eg.get_aligned("ENT_KB_ID", as_string=True)
@@ -247,7 +261,7 @@ class EntityLinker(Pipe):
         entity_encodings = self.model.ops.asarray(entity_encodings, dtype="float32")
         if sentence_encodings.shape != entity_encodings.shape:
             err = Errors.E147.format(
-                method="get_similarity_loss", msg="gold entities do not match up"
+                method="get_loss", msg="gold entities do not match up"
             )
             raise RuntimeError(err)
         gradients = self.distance.get_grad(sentence_encodings, entity_encodings)
@@ -337,13 +351,13 @@ class EntityLinker(Pipe):
                                     final_kb_ids.append(candidates[0].entity_)
                                 else:
                                     random.shuffle(candidates)
-                                    # this will set all prior probabilities to 0 if they should be excluded from the model
+                                    # set all prior probabilities to 0 if incl_prior=False
                                     prior_probs = xp.asarray(
                                         [c.prior_prob for c in candidates]
                                     )
                                     if not self.cfg.get("incl_prior"):
                                         prior_probs = xp.asarray(
-                                            [0.0 for c in candidates]
+                                            [0.0 for _ in candidates]
                                         )
                                     scores = prior_probs
                                     # add in similarity from the context
@@ -434,12 +448,11 @@ class EntityLinker(Pipe):
             try:
                 self.model.from_bytes(p.open("rb").read())
             except AttributeError:
-                raise ValueError(Errors.E149)
+                raise ValueError(Errors.E149) from None
 
         def load_kb(p):
-            self.kb = KnowledgeBase(
-                vocab=self.vocab, entity_vector_length=self.cfg["entity_width"]
-            )
+            self.kb = KnowledgeBase(entity_vector_length=self.cfg["entity_width"])
+            self.kb.initialize(self.vocab)
             self.kb.load_bulk(p)
 
         deserialize = {}

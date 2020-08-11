@@ -8,6 +8,18 @@ api_string_name: ner
 api_trainable: true
 ---
 
+A transition-based named entity recognition component. The entity recognizer
+identifies **non-overlapping labelled spans** of tokens. The transition-based
+algorithm used encodes certain assumptions that are effective for "traditional"
+named entity recognition tasks, but may not be a good fit for every span
+identification problem. Specifically, the loss function optimizes for **whole
+entity accuracy**, so if your inter-annotator agreement on boundary tokens is
+low, the component will likely perform poorly on your problem. The
+transition-based algorithm also assumes that the most decisive information about
+your entities will be close to their initial tokens. If your entities are long
+and characterized by tokens in their middle, the component will likely not be a
+good fit for your task.
+
 ## Config and implementation {#config}
 
 The default config is defined by the pipeline component factory and describes
@@ -23,16 +35,17 @@ architectures and their arguments and hyperparameters.
 > from spacy.pipeline.ner import DEFAULT_NER_MODEL
 > config = {
 >    "moves": None,
->   # TODO: rest
+>    "update_with_oracle_cut_size": 100,
 >    "model": DEFAULT_NER_MODEL,
 > }
 > nlp.add_pipe("ner", config=config)
 > ```
 
-| Setting | Type                                       | Description       | Default                                                           |
-| ------- | ------------------------------------------ | ----------------- | ----------------------------------------------------------------- |
-| `moves` | list                                       | <!-- TODO: -->    | `None`                                                            |
-| `model` | [`Model`](https://thinc.ai/docs/api-model) | The model to use. | [TransitionBasedParser](/api/architectures#TransitionBasedParser) |
+| Setting                       | Type                                       | Description                                                                                                                                                                                                              | Default                                                           |
+| ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `moves`                       | `List[str]`                                | A list of transition names. Inferred from the data if not provided.                                                                                                                                                      |
+| `update_with_oracle_cut_size` | int                                        | During training, cut long sequences into shorter segments by creating intermediate states based on the gold-standard history. The model is not very sensitive to this parameter, so you usually won't need to change it. | `100`                                                             |
+| `model`                       | [`Model`](https://thinc.ai/docs/api-model) | The model to use.                                                                                                                                                                                                        | [TransitionBasedParser](/api/architectures#TransitionBasedParser) |
 
 ```python
 https://github.com/explosion/spaCy/blob/develop/spacy/pipeline/ner.pyx
@@ -59,17 +72,14 @@ Create a new pipeline instance. In your application, you would normally use a
 shortcut for this and instantiate the component using its string name and
 [`nlp.add_pipe`](/api/language#add_pipe).
 
-| Name                          | Type                                       | Description                                                                                 |
-| ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `vocab`                       | `Vocab`                                    | The shared vocabulary.                                                                      |
-| `model`                       | [`Model`](https://thinc.ai/docs/api-model) | The [`Model`](https://thinc.ai/docs/api-model) powering the pipeline component.             |
-| `name`                        | str                                        | String name of the component instance. Used to add entries to the `losses` during training. |
-| `moves`                       | list                                       | <!-- TODO: -->                                                                              |
-| _keyword-only_                |                                            |                                                                                             |
-| `update_with_oracle_cut_size` | int                                        | <!-- TODO: -->                                                                              |
-| `multitasks`                  | `Iterable`                                 | <!-- TODO: -->                                                                              |
-| `learn_tokens`                | bool                                       | <!-- TODO: -->                                                                              |
-| `min_action_freq`             | int                                        | <!-- TODO: -->                                                                              |
+| Name                          | Type                                       | Description                                                                                                                                                                                                                                       |
+| ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vocab`                       | `Vocab`                                    | The shared vocabulary.                                                                                                                                                                                                                            |
+| `model`                       | [`Model`](https://thinc.ai/docs/api-model) | The [`Model`](https://thinc.ai/docs/api-model) powering the pipeline component.                                                                                                                                                                   |
+| `name`                        | str                                        | String name of the component instance. Used to add entries to the `losses` during training.                                                                                                                                                       |
+| `moves`                       | `List[str]`                                | A list of transition names. Inferred from the data if not provided.                                                                                                                                                                               |
+| _keyword-only_                |                                            |                                                                                                                                                                                                                                                   |
+| `update_with_oracle_cut_size` | int                                        | During training, cut long sequences into shorter segments by creating intermediate states based on the gold-standard history. The model is not very sensitive to this parameter, so you usually won't need to change it. `100` is a good default. |
 
 ## EntityRecognizer.\_\_call\_\_ {#call tag="method"}
 
@@ -141,7 +151,8 @@ Initialize the pipe for training, using data examples if available. Returns an
 
 ## EntityRecognizer.predict {#predict tag="method"}
 
-Apply the pipeline's model to a batch of docs, without modifying them.
+Apply the component's model to a batch of [`Doc`](/api/doc) objects, without
+modifying them.
 
 > #### Example
 >
@@ -157,7 +168,7 @@ Apply the pipeline's model to a batch of docs, without modifying them.
 
 ## EntityRecognizer.set_annotations {#set_annotations tag="method"}
 
-Modify a batch of documents, using pre-computed scores.
+Modify a batch of [`Doc`](/api/doc) objects, using pre-computed scores.
 
 > #### Example
 >

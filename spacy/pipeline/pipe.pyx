@@ -1,4 +1,4 @@
-# cython: infer_types=True, profile=True, binding=True
+# cython: infer_types=True, profile=True
 import srsly
 
 from ..tokens.doc cimport Doc
@@ -8,7 +8,7 @@ from ..errors import Errors
 from .. import util
 
 
-class Pipe:
+cdef class Pipe:
     """This class is a base class and not instantiated directly. Trainable
     pipeline components like the EntityRecognizer or TextCategorizer inherit
     from it and it defines the interface that components should follow to
@@ -16,8 +16,6 @@ class Pipe:
 
     DOCS: https://spacy.io/api/pipe
     """
-
-    name = None
 
     def __init__(self, vocab, model, name, **cfg):
         """Initialize a pipeline component.
@@ -206,7 +204,7 @@ class Pipe:
             try:
                 self.model.from_bytes(b)
             except AttributeError:
-                raise ValueError(Errors.E149)
+                raise ValueError(Errors.E149) from None
 
         deserialize = {}
         if hasattr(self, "vocab"):
@@ -244,7 +242,7 @@ class Pipe:
             try:
                 self.model.from_bytes(p.open("rb").read())
             except AttributeError:
-                raise ValueError(Errors.E149)
+                raise ValueError(Errors.E149) from None
 
         deserialize = {}
         deserialize["vocab"] = lambda p: self.vocab.from_disk(p)

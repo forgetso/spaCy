@@ -25,7 +25,6 @@ embed_size = 2000
 window_size = 1
 maxout_pieces = 2
 subword_features = true
-dropout = null
 """
 DEFAULT_SENTER_MODEL = Config().from_str(default_model_config)["model"]
 
@@ -108,8 +107,8 @@ class SentenceRecognizer(Tagger):
         truths = []
         for eg in examples:
             eg_truth = []
-            for x in eg.get_aligned("sent_start"):
-                if x == None:
+            for x in eg.get_aligned("SENT_START"):
+                if x is None:
                     eg_truth.append(None)
                 elif x == 1:
                     eg_truth.append(labels[1])
@@ -183,7 +182,7 @@ class SentenceRecognizer(Tagger):
             try:
                 self.model.from_bytes(b)
             except AttributeError:
-                raise ValueError(Errors.E149)
+                raise ValueError(Errors.E149) from None
 
         deserialize = {
             "vocab": lambda b: self.vocab.from_bytes(b),
@@ -222,7 +221,7 @@ class SentenceRecognizer(Tagger):
                 try:
                     self.model.from_bytes(file_.read())
                 except AttributeError:
-                    raise ValueError(Errors.E149)
+                    raise ValueError(Errors.E149) from None
 
         deserialize = {
             "vocab": lambda p: self.vocab.from_disk(p),

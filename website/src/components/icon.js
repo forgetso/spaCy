@@ -22,6 +22,7 @@ import { ReactComponent as SearchIcon } from '../images/icons/search.svg'
 import { ReactComponent as MoonIcon } from '../images/icons/moon.svg'
 import { ReactComponent as ClipboardIcon } from '../images/icons/clipboard.svg'
 import { ReactComponent as NetworkIcon } from '../images/icons/network.svg'
+import { ReactComponent as DownloadIcon } from '../images/icons/download.svg'
 
 import classes from '../styles/icon.module.sass'
 
@@ -46,10 +47,11 @@ const icons = {
     search: SearchIcon,
     moon: MoonIcon,
     clipboard: ClipboardIcon,
-    network: NetworkIcon
+    network: NetworkIcon,
+    download: DownloadIcon,
 }
 
-const Icon = ({ name, width, height, inline, variant, className }) => {
+export default function Icon({ name, width = 20, height, inline = false, variant, className }) {
     const IconComponent = icons[name]
     const iconClassNames = classNames(classes.root, className, {
         [classes.inline]: inline,
@@ -67,11 +69,6 @@ const Icon = ({ name, width, height, inline, variant, className }) => {
     )
 }
 
-Icon.defaultProps = {
-    width: 20,
-    inline: false,
-}
-
 Icon.propTypes = {
     name: PropTypes.oneOf(Object.keys(icons)),
     width: PropTypes.number,
@@ -80,5 +77,3 @@ Icon.propTypes = {
     variant: PropTypes.oneOf(['success', 'error', 'subtle']),
     className: PropTypes.string,
 }
-
-export default Icon

@@ -1,5 +1,6 @@
 from typing import Iterable, Tuple, Optional, Dict, List, Callable, Iterator, Any
 from thinc.api import get_array_module, Model, Optimizer, set_dropout_rate, Config
+from thinc.types import Floats2d
 import numpy
 
 from .pipe import Pipe
@@ -30,8 +31,8 @@ bow_model_config = """
 [model]
 @architectures = "spacy.TextCatBOW.v1"
 exclusive_classes = false
-ngram_size: 1
-no_output_layer: false
+ngram_size = 1
+no_output_layer = false
 """
 
 cnn_model_config = """
@@ -48,7 +49,6 @@ embed_size = 2000
 window_size = 1
 maxout_pieces = 3
 subword_features = true
-dropout = null
 """
 
 
@@ -70,8 +70,22 @@ dropout = null
     default_score_weights={"cats_score": 1.0},
 )
 def make_textcat(
-    nlp: Language, name: str, model: Model, labels: Iterable[str]
+    nlp: Language,
+    name: str,
+    model: Model[List[Doc], List[Floats2d]],
+    labels: Iterable[str],
 ) -> "TextCategorizer":
+    """Create a TextCategorizer compoment. The text categorizer predicts categories
+    over a whole document. It can learn one or more labels, and the labels can
+    be mutually exclusive (i.e. one true label per doc) or non-mutually exclusive
+    (i.e. zero or more labels may be true per doc). The multi-label setting is
+    controlled by the model instance that's provided.
+
+    model (Model[List[Doc], List[Floats2d]]): A model instance that predicts
+        scores for each category.
+    labels (list): A list of categories to learn. If empty, the model infers the
+        categories from the data.
+    """
     return TextCategorizer(nlp.vocab, model, name, labels=labels)
 
 
@@ -158,7 +172,7 @@ class TextCategorizer(Pipe):
         return scores
 
     def set_annotations(self, docs: Iterable[Doc], scores) -> None:
-        """Modify a batch of documents, using pre-computed scores.
+        """Modify a batch of [`Doc`](/api/doc) objects, using pre-computed scores.
 
         docs (Iterable[Doc]): The documents to modify.
         scores: The scores to set, produced by TextCategorizer.predict.
@@ -203,7 +217,7 @@ class TextCategorizer(Pipe):
             types = set([type(eg) for eg in examples])
             raise TypeError(
                 Errors.E978.format(name="TextCategorizer", method="update", types=types)
-            )
+            ) from None
         set_dropout_rate(self.model, drop)
         scores, bp_scores = self.model.begin_update([eg.predicted for eg in examples])
         loss, d_scores = self.get_loss(examples, scores)
@@ -238,8 +252,11 @@ class TextCategorizer(Pipe):
 
         DOCS: https://spacy.io/api/textcategorizer#rehearse
         """
+
+        if losses is not None:
+            losses.setdefault(self.name, 0.0)
         if self._rehearsal_model is None:
-            return
+            return losses
         try:
             docs = [eg.predicted for eg in examples]
         except AttributeError:
@@ -247,10 +264,10 @@ class TextCategorizer(Pipe):
             err = Errors.E978.format(
                 name="TextCategorizer", method="rehearse", types=types
             )
-            raise TypeError(err)
+            raise TypeError(err) from None
         if not any(len(doc) for doc in docs):
             # Handle cases where there are no tokens in any docs.
-            return
+            return losses
         set_dropout_rate(self.model, drop)
         scores, bp_scores = self.model.begin_update(docs)
         target = self._rehearsal_model(examples)
@@ -259,7 +276,6 @@ class TextCategorizer(Pipe):
         if sgd is not None:
             self.model.finish_update(sgd)
         if losses is not None:
-            losses.setdefault(self.name, 0.0)
             losses[self.name] += (gradient ** 2).sum()
         return losses
 
@@ -349,11 +365,11 @@ class TextCategorizer(Pipe):
                 err = Errors.E978.format(
                     name="TextCategorizer", method="update", types=type(example)
                 )
-                raise TypeError(err)
+                raise TypeError(err) from None
             for cat in y.cats:
                 self.add_label(cat)
         self.require_labels()
-        docs = [Doc(Vocab(), words=["hello"])]
+        docs = [Doc(self.vocab, words=["hello"])]
         truths, _ = self._examples_to_truth(examples)
         self.set_output(len(self.labels))
         self.model.initialize(X=docs, Y=truths)

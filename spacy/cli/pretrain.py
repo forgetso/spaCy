@@ -35,7 +35,7 @@ def pretrain_cli(
     config_path: Path = Arg(..., help="Path to config file", exists=True, dir_okay=False),
     code_path: Optional[Path] = Opt(None, "--code-path", "-c", help="Path to Python file with additional code (registered functions) to be imported"),
     resume_path: Optional[Path] = Opt(None, "--resume-path", "-r", help="Path to pretrained weights from which to resume pretraining"),
-    epoch_resume: Optional[int] = Opt(None, "--epoch-resume", "-er", help="The epoch to resume counting from when using '--resume_path'. Prevents unintended overwriting of existing weight files."),
+    epoch_resume: Optional[int] = Opt(None, "--epoch-resume", "-er", help="The epoch to resume counting from when using --resume-path. Prevents unintended overwriting of existing weight files."),
     use_gpu: int = Opt(-1, "--gpu-id", "-g", help="GPU ID or -1 for CPU"),
     # fmt: on
 ):
@@ -87,9 +87,9 @@ def pretrain(
     else:
         msg.info("Using CPU")
     msg.info(f"Loading config from: {config_path}")
-    config = Config().from_disk(config_path)
-    with show_validation_error():
-        nlp, config = util.load_model_from_config(config, overrides=config_overrides)
+    with show_validation_error(config_path):
+        config = Config().from_disk(config_path, overrides=config_overrides)
+        nlp, config = util.load_model_from_config(config)
     # TODO: validate that [pretraining] block exists
     if not output_dir.exists():
         output_dir.mkdir()

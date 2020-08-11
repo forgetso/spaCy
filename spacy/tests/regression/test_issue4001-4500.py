@@ -138,10 +138,7 @@ def test_issue4042_bug2():
         if not output_dir.exists():
             output_dir.mkdir()
         ner1.to_disk(output_dir)
-        config = {
-            "learn_tokens": False,
-            "min_action_freq": 30,
-        }
+        config = {}
         ner2 = nlp1.create_pipe("ner", config=config)
         ner2.from_disk(output_dir)
         assert len(ner2.labels) == 2
@@ -271,6 +268,7 @@ def test_issue4267():
         assert token.ent_iob == 2
 
 
+@pytest.mark.skip(reason="lemmatizer lookups no longer in vocab")
 def test_issue4272():
     """Test that lookup table can be accessed from Token.lemma if no POS tags
     are available."""
@@ -302,10 +300,7 @@ def test_issue4313():
     beam_width = 16
     beam_density = 0.0001
     nlp = English()
-    config = {
-        "learn_tokens": False,
-        "min_action_freq": 30,
-    }
+    config = {}
     ner = nlp.create_pipe("ner", config=config)
     ner.add_label("SOME_LABEL")
     ner.begin_training([])
@@ -438,9 +433,8 @@ def test_issue4402():
         data = DocBin(docs=docs, attrs=attrs).to_bytes()
         with output_file.open("wb") as file_:
             file_.write(data)
-        corpus = Corpus(train_loc=str(output_file), dev_loc=str(output_file))
-
-        train_data = list(corpus.train_dataset(nlp))
+        reader = Corpus(output_file)
+        train_data = list(reader(nlp))
         assert len(train_data) == 2
 
         split_train_data = []

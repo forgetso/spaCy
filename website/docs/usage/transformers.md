@@ -32,8 +32,6 @@ transformer pipeline component is available to spaCy.
 $ pip install spacy-transformers
 ```
 
-<!-- TODO: the text below has been copied from the spacy-transformers repo and needs to be updated and adjusted -->
-
 ## Runtime usage {#runtime}
 
 Transformer models can be used as **drop-in replacements** for other types of
@@ -88,7 +86,8 @@ The recommended workflow for training is to use spaCy's
 [`spacy train`](/api/cli#train) command. The training config defines all
 component settings and hyperparameters in one place and lets you describe a tree
 of objects by referring to creation functions, including functions you register
-yourself.
+yourself. For details on how to get started with training your own model, check
+out the [training quickstart](/usage/training#quickstart).
 
 <Project id="en_core_bert">
 
@@ -98,9 +97,9 @@ evaluate, package and visualize your model.
 
 </Project>
 
-The `[components]` section in the [`config.cfg`](#TODO:) describes the pipeline
-components and the settings used to construct them, including their model
-implementation. Here's a config snippet for the
+The `[components]` section in the [`config.cfg`](/api/data-formats#config)
+describes the pipeline components and the settings used to construct them,
+including their model implementation. Here's a config snippet for the
 [`Transformer`](/api/transformer) component, along with matching Python code. In
 this case, the `[components.transformer]` block describes the `transformer`
 component:
@@ -164,10 +163,8 @@ resolved, the function is created and passed into the model as an argument.
 Remember that the `config.cfg` used for training should contain **no missing
 values** and requires all settings to be defined. You don't want any hidden
 defaults creeping in and changing your results! spaCy will tell you if settings
-are missing, and you can run [`spacy debug config`](/api/cli#debug-config) with
-`--auto-fill` to automatically fill in all defaults.
-
-<!-- TODO: update with details on getting started with a config -->
+are missing, and you can run [`spacy init config`](/api/cli#init-config) with to
+automatically fill in all defaults.
 
 </Infobox>
 
@@ -205,7 +202,7 @@ a Python file. For more details on training with custom code, see the
 [training documentation](/usage/training#custom-code).
 
 ```bash
-$ python -m spacy train ./train.spacy ./dev.spacy ./config.cfg --code ./code.py
+$ python -m spacy train ./config.cfg --code ./code.py
 ```
 
 ### Customizing the model implementations {#training-custom-model}

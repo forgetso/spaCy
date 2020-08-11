@@ -62,8 +62,7 @@ def tagger():
     # need to add model for two reasons:
     # 1. no model leads to error in serialization,
     # 2. the affected line is the one for model serialization
-    with pytest.warns(UserWarning):
-        tagger.begin_training(pipeline=nlp.pipeline)
+    tagger.begin_training(pipeline=nlp.pipeline)
     return tagger
 
 
@@ -72,7 +71,8 @@ def entity_linker():
 
     @registry.assets.register("TestIssue5230KB.v1")
     def dummy_kb() -> KnowledgeBase:
-        kb = KnowledgeBase(nlp.vocab, entity_vector_length=1)
+        kb = KnowledgeBase(entity_vector_length=1)
+        kb.initialize(nlp.vocab)
         kb.add_entity("test", 0.0, zeros((1, 1), dtype="f"))
         return kb
 
@@ -121,7 +121,8 @@ def test_writer_with_path_py35():
 
 def test_save_and_load_knowledge_base():
     nlp = Language()
-    kb = KnowledgeBase(nlp.vocab, entity_vector_length=1)
+    kb = KnowledgeBase(entity_vector_length=1)
+    kb.initialize(nlp.vocab)
     with make_tempdir() as d:
         path = d / "kb"
         try:
@@ -130,7 +131,8 @@ def test_save_and_load_knowledge_base():
             pytest.fail(str(e))
 
         try:
-            kb_loaded = KnowledgeBase(nlp.vocab, entity_vector_length=1)
+            kb_loaded = KnowledgeBase(entity_vector_length=1)
+            kb_loaded.initialize(nlp.vocab)
             kb_loaded.load_bulk(path)
         except Exception as e:
             pytest.fail(str(e))

@@ -69,8 +69,8 @@ shortcut for this and instantiate the component using its string name and
 | `model`        | `Model` | The [`Model`](https://thinc.ai/docs/api-model) powering the pipeline component.             |
 | `name`         | str     | String name of the component instance. Used to add entries to the `losses` during training. |
 | _keyword-only_ |         |                                                                                             |
-| `labels_morph` | dict    | <!-- TODO: -->                                                                              |
-| `labels_pos`   | dict    | <!-- TODO: -->                                                                              |
+| `labels_morph` | dict    | Mapping of morph + POS tags to morph labels.                                                |
+| `labels_pos`   | dict    | Mapping of morph + POS tags to POS tags.                                                    |
 
 ## Morphologizer.\_\_call\_\_ {#call tag="method"}
 
@@ -142,7 +142,8 @@ Initialize the pipe for training, using data examples if available. Returns an
 
 ## Morphologizer.predict {#predict tag="method"}
 
-Apply the pipeline's model to a batch of docs, without modifying them.
+Apply the component's model to a batch of [`Doc`](/api/doc) objects, without
+modifying them.
 
 > #### Example
 >
@@ -158,7 +159,7 @@ Apply the pipeline's model to a batch of docs, without modifying them.
 
 ## Morphologizer.set_annotations {#set_annotations tag="method"}
 
-Modify a batch of documents, using pre-computed scores.
+Modify a batch of [`Doc`](/api/doc) objects, using pre-computed scores.
 
 > #### Example
 >
@@ -175,8 +176,9 @@ Modify a batch of documents, using pre-computed scores.
 
 ## Morphologizer.update {#update tag="method"}
 
-Learn from a batch of documents and gold-standard information, updating the
-pipe's model. Delegates to [`predict`](/api/morphologizer#predict) and
+Learn from a batch of [`Example`](/api/example) objects containing the
+predictions and gold-standard annotations, and update the component's model.
+Delegates to [`predict`](/api/morphologizer#predict) and
 [`get_loss`](/api/morphologizer#get_loss).
 
 > #### Example

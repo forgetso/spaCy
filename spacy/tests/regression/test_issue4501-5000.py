@@ -139,7 +139,8 @@ def test_issue4665():
 def test_issue4674():
     """Test that setting entities with overlapping identifiers does not mess up IO"""
     nlp = English()
-    kb = KnowledgeBase(nlp.vocab, entity_vector_length=3)
+    kb = KnowledgeBase(entity_vector_length=3)
+    kb.initialize(nlp.vocab)
     vector1 = [0.9, 1.1, 1.01]
     vector2 = [1.8, 2.25, 2.01]
     with pytest.warns(UserWarning):
@@ -156,7 +157,8 @@ def test_issue4674():
             dir_path.mkdir()
         file_path = dir_path / "kb"
         kb.dump(str(file_path))
-        kb2 = KnowledgeBase(vocab=nlp.vocab, entity_vector_length=3)
+        kb2 = KnowledgeBase(entity_vector_length=3)
+        kb2.initialize(nlp.vocab)
         kb2.load_bulk(str(file_path))
     assert kb2.get_size_entities() == 1
 
@@ -183,20 +185,16 @@ def test_issue4725_1():
     vocab = Vocab(vectors_name="test_vocab_add_vector")
     nlp = English(vocab=vocab)
     config = {
-        "learn_tokens": False,
-        "min_action_freq": 342,
         "update_with_oracle_cut_size": 111,
     }
     ner = nlp.create_pipe("ner", config=config)
     with make_tempdir() as tmp_path:
         with (tmp_path / "ner.pkl").open("wb") as file_:
             pickle.dump(ner, file_)
-            assert ner.cfg["min_action_freq"] == 342
             assert ner.cfg["update_with_oracle_cut_size"] == 111
 
         with (tmp_path / "ner.pkl").open("rb") as file_:
             ner2 = pickle.load(file_)
-            assert ner2.cfg["min_action_freq"] == 342
             assert ner2.cfg["update_with_oracle_cut_size"] == 111
 
 

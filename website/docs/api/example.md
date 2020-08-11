@@ -244,8 +244,7 @@ accuracy of predicted entities against the original gold-standard annotation.
 
 ## Example.to_dict {#to_dict tag="method"}
 
-Return a
-[hierarchical dictionary representation](/api/data-formats#dict-hierarch) of the
+Return a [dictionary representation](/api/data-formats#dict-input) of the
 reference annotation contained in this `Example`.
 
 > #### Example
@@ -256,7 +255,7 @@ reference annotation contained in this `Example`.
 
 | Name        | Type             | Description                                            |
 | ----------- | ---------------- | ------------------------------------------------------ |
-| **RETURNS** | `Dict[str, obj]` | Dictionary representation of the reference annotation. |
+| **RETURNS** | `Dict[str, Any]` | Dictionary representation of the reference annotation. |
 
 ## Example.split_sents {#split_sents tag="method"}
 
@@ -289,7 +288,6 @@ Calculate alignment tables between two tokenizations.
 | `x2y` | [`Ragged`](https://thinc.ai/docs/api-types#ragged) | The `Ragged` object holding the alignment from `x` to `y`. |
 | `y2x` | [`Ragged`](https://thinc.ai/docs/api-types#ragged) | The `Ragged` object holding the alignment from `y` to `x`. |
 
-
 <Infobox title="Important note" variant="warning">
 
 The current implementation of the alignment algorithm assumes that both
@@ -310,8 +308,9 @@ tokenizations add up to the same string. For example, you'll be able to align
 > a2b = alignment.x2y
 > assert list(a2b.dataXd) == [0, 1, 1, 2]
 > ```
-> 
-> If `a2b.dataXd[1] == a2b.dataXd[2] == 1`, that means that `A[1]` (`"'"`) and `A[2]` (`"s"`) both align to `B[1]` (`"'s"`). 
+>
+> If `a2b.dataXd[1] == a2b.dataXd[2] == 1`, that means that `A[1]` (`"'"`) and
+> `A[2]` (`"s"`) both align to `B[1]` (`"'s"`).
 
 ### Alignment.from_strings {#classmethod tag="function"}
 
@@ -320,4 +319,3 @@ tokenizations add up to the same string. For example, you'll be able to align
 | `A`         | list        | String values of candidate tokens to align.     |
 | `B`         | list        | String values of reference tokens to align.     |
 | **RETURNS** | `Alignment` | An `Alignment` object describing the alignment. |
-
