@@ -1436,7 +1436,8 @@ class Language:
         # Note that we don't load vectors here, instead they get loaded explicitly
         # inside stuff like the spacy train function. If we loaded them here,
         # then we would load them twice at runtime: once when we make from config,
-        # and then again when we load from disk.
+        # and then again when we load from disk. One EXCEPTION is when shared contains
+        # a reference to a shared memory for vectors. These are assigned at initialisation.
         nlp = lang_cls(vocab=vocab, create_tokenizer=create_tokenizer, shared=shared)
         if after_creation is not None:
             nlp = after_creation(nlp)
