@@ -3,15 +3,17 @@ import spacy
 import sys
 from multiprocessing import current_process
 
-words = ['dog', 'cat', 'fox', 'chicken', 'cow', 'mouse']
+words = ["dog", "cat", "fox", "chicken", "cow", "mouse"]
 
 
 def work_with_shared_memory(work, model_path, shm_name, rows, cols, dtype):
     tracemalloc.start()
     shape = (rows, cols)
     current, peak = tracemalloc.get_traced_memory()
-    print(f"Current Process: {current_process().name=} memory usage {current / 1e6}MB; Peak: {peak / 1e6}MB")
-    shared = {'vectors': {'name': shm_name, 'shape': shape, 'dtype': dtype}}
+    print(
+        f"Current Process: {current_process().name=} memory usage {current / 1e6}MB; Peak: {peak / 1e6}MB"
+    )
+    shared = {"vectors": {"name": shm_name, "shape": shape, "dtype": dtype}}
     nlp = spacy.load(model_path, shared=shared)
     sims = []
     for pair in work:
@@ -33,4 +35,3 @@ def get_nlp_similarity(w1, w2, model):
         w2v = model(w2)
         sim = w1v.similarity(w2v)
     return sim
-

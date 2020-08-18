@@ -5,8 +5,8 @@ import spacy
 import random
 import time
 
-set_start_method('fork', force=True)
-words = ['dog', 'cat', 'fox', 'chicken', 'cow', 'mouse']
+set_start_method("fork", force=True)
+words = ["dog", "cat", "fox", "chicken", "cow", "mouse"]
 
 
 # split a list into evenly sized chunks
@@ -43,7 +43,7 @@ def worker_wrapper(arg):
 
 def main():
     # Load the spacy model - a shared memory for vectors will be created
-    model_path = '/home/chris/dev/uniqueness/data/crawl'
+    model_path = "/home/chris/dev/uniqueness/data/crawl"
     nlp = spacy.load(model_path)
     shape, dtype = nlp.vocab.vectors.data.base.shape, nlp.vocab.vectors.data.base.dtype
     shm = nlp.vocab.vectors.shm
@@ -52,18 +52,20 @@ def main():
     for _ in range(0, process_count * 10000):
         work.append((random.choice(words), random.choice(words)))
     start = time.time()
-    processes = job_pool(data=work,
-                         model_path=model_path,
-                         job_number=process_count,
-                         job_to_do=work_with_shared_memory,
-                         shm_name=shm.name,
-                         rows=shape[0],
-                         cols=shape[1],
-                         dtype=dtype)
+    processes = job_pool(
+        data=work,
+        model_path=model_path,
+        job_number=process_count,
+        job_to_do=work_with_shared_memory,
+        shm_name=shm.name,
+        rows=shape[0],
+        cols=shape[1],
+        dtype=dtype,
+    )
     end = time.time()
     result = np.concatenate([np.array(x) for x in processes])
-    print('got {} similarities from {} jobs'.format(len(result), process_count))
-    print('time taken {}s'.format(start - end))
+    print("got {} similarities from {} jobs".format(len(result), process_count))
+    print("time taken {}s".format(start - end))
     nlp.vocab.vectors.close_shared_memory()
     nlp.vocab.vectors.unlink_shared_memory()
 
