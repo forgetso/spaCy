@@ -13,6 +13,7 @@ from .strings import get_string_id
 from .errors import Errors
 from . import util
 from multiprocessing import shared_memory, Lock
+import sys
 
 def unpickle_vectors(bytes_data):
     return Vectors().from_bytes(bytes_data)
@@ -514,10 +515,10 @@ cdef class Vectors:
         DOCS: https://spacy.io/api/vectors#from_bytes
         """
         def deserialize_weights(b):
-            if hasattr(self.data.base, "from_bytes"):
-                self.data.base.from_bytes()
+            if hasattr(self.data, "from_bytes"):
+                self.data.from_bytes()
             else:
-                self.data.base = srsly.msgpack_loads(b)
+                self.create_shared_memory(srsly.msgpack_loads(b))
 
         deserializers = {
             "key2row": lambda b: self.key2row.update(srsly.msgpack_loads(b)),
@@ -532,13 +533,26 @@ cdef class Vectors:
         self._unset = cppset[int]({row for row in range(self.data.base.shape[0]) if row not in filled})
 
     def create_shared_memory(self, data):
-        ops = get_current_ops()
-        self.shm = shared_memory.SharedMemory(size=data.nbytes, create=True)
-        shm_np_array = np.ndarray(shape=data.shape, dtype=data.dtype, buffer=self.shm.buf)
-        ops.xp.copyto(shm_np_array, data)
-        self.vectors_shared_name = self.shm.name
-        self.vectors_shared_shape = data.shape
-        self.data = shm_np_array
+        # cannot create an empty shared memory
+        if sys.getsizeof(data) > 0:
+            ops = get_current_ops()
+            size = sys.getsizeof(data)
+            if hasattr(data, 'nbytes'):
+                if data.nbytes > 0:
+                    size = data.nbytes
+                    copyto = True
+
+            self.shm = shared_memory.SharedMemory(size=size, create=True)
+            self.vectors_shared_name = self.shm.name
+            self.vectors_shared_shape = data.shape
+            if copyto:
+                shm_np_array = np.ndarray(shape=data.shape, dtype=data.dtype, buffer=self.shm.buf)
+                ops.xp.copyto(shm_np_array, data)
+                self.data = shm_np_array
+        else:
+            self.data = data
+
+
 
     def get_data_from_shared_memory(self):
         ops = get_current_ops()

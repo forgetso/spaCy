@@ -312,7 +312,7 @@ cdef class Vocab:
 
         DOCS: https://spacy.io/api/vocab#prune_vectors
         """
-        xp = get_array_module(self.vectors.data)
+        xp = get_array_module(self.vectors.data.base)
         # Make prob negative so it sorts by rank ascending
         # (key2row contains the rank)
         priority = [(-lex.prob, self.vectors.key2row[lex.orth], lex.orth)
@@ -320,8 +320,8 @@ cdef class Vocab:
         priority.sort()
         indices = xp.asarray([i for (prob, i, key) in priority], dtype="uint64")
         keys = xp.asarray([key for (prob, i, key) in priority], dtype="uint64")
-        keep = xp.ascontiguousarray(self.vectors.data[indices[:nr_row]])
-        toss = xp.ascontiguousarray(self.vectors.data[indices[nr_row:]])
+        keep = xp.ascontiguousarray(self.vectors.data.base[indices[:nr_row]])
+        toss = xp.ascontiguousarray(self.vectors.data.base[indices[nr_row:]])
         self.vectors = Vectors(data=keep, keys=keys[:nr_row], name=self.vectors.name)
         syn_keys, syn_rows, scores = self.vectors.most_similar(toss, batch_size=batch_size)
         remap = {}
@@ -362,7 +362,7 @@ cdef class Vocab:
             minn = len(word)
         if maxn is None:
             maxn = len(word)
-        xp = get_array_module(self.vectors.data)
+        xp = get_array_module(self.vectors.data.base)
         vectors = xp.zeros((self.vectors_length,), dtype="f")
         # Fasttext's ngram computation taken from
         # https://github.com/facebookresearch/fastText
