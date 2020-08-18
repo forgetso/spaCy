@@ -142,6 +142,7 @@ class Language:
         # Component meta and configs are only needed on the instance
         self._pipe_meta: Dict[str, "FactoryMeta"] = {}  # meta by component
         self._pipe_configs: Dict[str, Config] = {}  # config by component
+        self.shared = kwargs.get('shared')
 
         if vocab is True:
             vectors_name = meta.get("vectors", {}).get("name")
@@ -150,6 +151,7 @@ class Language:
                 self.Defaults,
                 vectors_name=vectors_name,
                 load_data=self._config["nlp"]["load_vocab_data"],
+                shared=self.shared
             )
         else:
             if (self.lang and vocab.lang) and (self.lang != vocab.lang):
@@ -1383,6 +1385,7 @@ class Language:
         disable: Iterable[str] = tuple(),
         auto_fill: bool = True,
         validate: bool = True,
+        shared: dict = None,
     ) -> "Language":
         """Create the nlp object from a loaded config. Will set up the tokenizer
         and language data, add pipeline components etc. If no config is provided,
@@ -1438,7 +1441,7 @@ class Language:
                 or lang_cls is not cls
             ):
                 raise ValueError(Errors.E943.format(value=type(lang_cls)))
-        nlp = lang_cls(vocab=vocab, create_tokenizer=create_tokenizer)
+        nlp = lang_cls(vocab=vocab, create_tokenizer=create_tokenizer, shared=shared)
         if after_creation is not None:
             nlp = after_creation(nlp)
             if not isinstance(nlp, cls):

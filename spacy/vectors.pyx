@@ -47,13 +47,15 @@ cdef class Vectors:
     DOCS: https://spacy.io/api/vectors
     """
     cdef public object name
-    cdef public object data
+    cdef public object shm
+    cdef public float[:, :] data
     cdef public object key2row
-    cdef public object _shared_memory_name
-    cdef public object _shared_memory_shape
+    cdef public object _vectors_shared_name
+    cdef public object _vectors_shared_shape
+    cdef public object _vectors_shared_dtype
     cdef cppset[int] _unset
 
-    def __init__(self, *, shape=None, data=None, keys=None, name=None):
+    def __init__(self, *, shape=None, data=None, keys=None, name=None, shared=None):
         """Create a new vector store.
 
         shape (tuple): Size of the table, as (# entries, # columns)
@@ -64,13 +66,18 @@ cdef class Vectors:
         DOCS: https://spacy.io/api/vectors#init
         """
         self.name = name
-        self._shared_memory_shape = None
-        self._shared_memory_name = None
+        self.shm = None
+
         if data is None:
             if shape is None:
                 shape = (0,0)
             data = numpy.zeros(shape, dtype="f")
         self.data = data
+
+        if shared is not None:
+            self.set_shared_properties(shared)
+            self.get_data_from_shared_memory()
+
         self.key2row = {}
         if self.data is not None:
             self._unset = cppset[int]({i for i in range(self.data.shape[0])})
@@ -81,28 +88,41 @@ cdef class Vectors:
                 self.add(key, row=i)
 
     @property
-    def shared_memory_name(self):
-        return self._shared_memory_name
+    def vectors_shared_name(self):
+        return self._vectors_shared_name
 
-    @shared_memory_name.setter
-    def shared_memory_name(self, value):
-        self._shared_memory_name = value
+    @vectors_shared_name.setter
+    def vectors_shared_name(self, value):
+        self._vectors_shared_name = value
 
-    @shared_memory_name.deleter
-    def shared_memory_name(self):
-        del self._shared_memory_name
+    @vectors_shared_name.deleter
+    def vectors_shared_name(self):
+        del self._vectors_shared_name
 
     @property
-    def shared_memory_shape(self):
-        return self._shared_memory_shape
+    def vectors_shared_shape(self):
+        return self._vectors_shared_shape
 
-    @shared_memory_shape.setter
-    def shared_memory_shape(self, value):
-        self._shared_memory_shape = value
+    @vectors_shared_shape.setter
+    def vectors_shared_shape(self, value):
+        self._vectors_shared_shape = value
 
-    @shared_memory_shape.deleter
-    def shared_memory_shape(self):
-        del self._shared_memory_shape
+    @vectors_shared_shape.deleter
+    def vectors_shared_shape(self):
+        del self._vectors_shared_shape
+
+    @property
+    def vectors_shared_dtype(self):
+        return self._vectors_shared_dtype
+
+    @vectors_shared_dtype.setter
+    def vectors_shared_dtype(self, value):
+        self._vectors_shared_dtype = value
+
+    @vectors_shared_dtype.deleter
+    def vectors_shared_dtype(self):
+        del self._vectors_shared_dtype
+
 
     @property
     def shape(self):
@@ -113,7 +133,7 @@ cdef class Vectors:
 
         DOCS: https://spacy.io/api/vectors#shape
         """
-        return self.data.shape
+        return self.data.base.shape
 
     @property
     def size(self):
@@ -123,7 +143,7 @@ cdef class Vectors:
 
         DOCS: https://spacy.io/api/vectors#size
         """
-        return self.data.shape[0] * self.data.shape[1]
+        return self.data.base.shape[0] * self.data.base.shape[1]
 
     @property
     def is_full(self):
@@ -161,7 +181,7 @@ cdef class Vectors:
         if i is None:
             raise KeyError(Errors.E058.format(key=key))
         else:
-            return self.data[i]
+            return self.data.base[i]
 
     def __setitem__(self, key, vector):
         """Set a vector for the given key.
@@ -172,7 +192,7 @@ cdef class Vectors:
         DOCS: https://spacy.io/api/vectors#setitem
         """
         i = self.key2row[key]
-        self.data[i] = vector
+        self.data.base[i] = vector
         if self._unset.count(i):
             self._unset.erase(self._unset.find(i))
 
@@ -192,7 +212,7 @@ cdef class Vectors:
 
         DOCS: https://spacy.io/api/vectors#len
         """
-        return self.data.shape[0]
+        return self.data.base.shape[0]
 
     def __contains__(self, key):
         """Check whether a key has been mapped to a vector entry in the table.
@@ -221,16 +241,16 @@ cdef class Vectors:
         """
         lock = Lock()
         lock.acquire()
-        xp = get_array_module(self.data)
+        xp = get_array_module(self.data.base)
         if inplace:
             if shape[1] != self.data.shape[1]:
                 raise ValueError(Errors.E193.format(new_dim=shape[1], curr_dim=self.data.shape[1]))
             if xp == numpy:
-                self.data.resize(shape, refcheck=False)
+                self.data.base.resize(shape, refcheck=False)
             else:
                 raise ValueError(Errors.E192)
         else:
-            resized_array = xp.zeros(shape, dtype=self.data.dtype)
+            resized_array = xp.zeros(shape, dtype=self.data.base.dtype)
             copy_shape = (min(shape[0], self.data.shape[0]), min(shape[1], self.data.shape[1]))
             resized_array[:copy_shape[0], :copy_shape[1]] = self.data[:copy_shape[0], :copy_shape[1]]
             self.data = resized_array
@@ -269,7 +289,7 @@ cdef class Vectors:
         DOCS: https://spacy.io/api/vectors#items
         """
         for key, row in self.key2row.items():
-            yield key, self.data[row]
+            yield key, self.data.base[row]
 
     def find(self, *, key=None, keys=None, row=None, rows=None):
         """Look up one or more keys by row, or vice versa.
@@ -287,7 +307,7 @@ cdef class Vectors:
         if sum(arg is None for arg in (key, keys, row, rows)) != 3:
             bad_kwargs = {"key": key, "keys": keys, "row": row, "rows": rows}
             raise ValueError(Errors.E059.format(kwargs=bad_kwargs))
-        xp = get_array_module(self.data)
+        xp = get_array_module(self.data.base)
         if key is not None:
             key = get_string_id(key)
             return self.key2row.get(key, -1)
@@ -333,7 +353,7 @@ cdef class Vectors:
         else:
             raise ValueError(Errors.E197.format(row=row, key=key))
         if vector is not None:
-            self.data[row] = vector
+            self.data.base[row] = vector
         if self._unset.count(row):
             self._unset.erase(self._unset.find(row))
         lock.release()
@@ -358,11 +378,11 @@ cdef class Vectors:
         filled = sorted(list({row for row in self.key2row.values()}))
         if len(filled) < n:
             raise ValueError(Errors.E198.format(n=n, n_rows=len(filled)))
-        xp = get_array_module(self.data)
+        xp = get_array_module(self.data.base)
 
-        norms = xp.linalg.norm(self.data[filled], axis=1, keepdims=True)
+        norms = xp.linalg.norm(self.data.base[filled], axis=1, keepdims=True)
         norms[norms == 0] = 1
-        vectors = self.data[filled] / norms
+        vectors = self.data.base[filled] / norms
 
         best_rows = xp.zeros((queries.shape[0], n), dtype='i')
         scores = xp.zeros((queries.shape[0], n), dtype='f')
@@ -404,7 +424,7 @@ cdef class Vectors:
 
         DOCS: https://spacy.io/api/vectors#to_disk
         """
-        xp = get_array_module(self.data)
+        xp = get_array_module(self.data.base)
         if xp is numpy:
             save_array = lambda arr, file_: xp.save(file_, arr, allow_pickle=False)
         else:
@@ -415,7 +435,7 @@ cdef class Vectors:
             # but it seems that somehow this does not happen, as ResourceWarnings are raised here.
             # in order to not rely on this, wrap in context manager.
             with path.open("wb") as _file:
-                save_array(self.data, _file)
+                save_array(self.data.base, _file)
 
         serializers = {
             "vectors": lambda p: save_vectors(p),
@@ -447,14 +467,12 @@ cdef class Vectors:
 
         def load_vectors(path):
             ops = get_current_ops()
-            self.get_data_from_shared_memory(ops)
-            if self.data.shape == (0, 0):
+            # this is the shape that data will have if class has been init'd with no shared memory
+            if self.data.base.shape == (0, 0):
                 if path.exists():
                     data = ops.xp.load(str(path))
-                    shm, shape = self.create_shared_block(data, ops)
-                    self.shared_memory_name = shm.name
-                    self.shared_memory_shape = shape
-                    self.get_data_from_shared_memory(ops)
+                    # create the shared memory for vectors which can be used to pass to other spacy instances
+                    self.create_shared_memory(data)
 
         serializers = {
             "vectors": load_vectors,
@@ -475,10 +493,10 @@ cdef class Vectors:
         DOCS: https://spacy.io/api/vectors#to_bytes
         """
         def serialize_weights():
-            if hasattr(self.data, "to_bytes"):
-                return self.data.to_bytes()
+            if hasattr(self.data.base, "to_bytes"):
+                return self.data.base.to_bytes()
             else:
-                return srsly.msgpack_dumps(self.data)
+                return srsly.msgpack_dumps(self.data.base)
 
         serializers = {
             "key2row": lambda: srsly.msgpack_dumps(self.key2row),
@@ -496,10 +514,10 @@ cdef class Vectors:
         DOCS: https://spacy.io/api/vectors#from_bytes
         """
         def deserialize_weights(b):
-            if hasattr(self.data, "from_bytes"):
-                self.data.from_bytes()
+            if hasattr(self.data.base, "from_bytes"):
+                self.data.base.from_bytes()
             else:
-                self.data = srsly.msgpack_loads(b)
+                self.data.base = srsly.msgpack_loads(b)
 
         deserializers = {
             "key2row": lambda b: self.key2row.update(srsly.msgpack_loads(b)),
@@ -511,19 +529,35 @@ cdef class Vectors:
 
     def _sync_unset(self):
         filled = {row for row in self.key2row.values()}
-        self._unset = cppset[int]({row for row in range(self.data.shape[0]) if row not in filled})
+        self._unset = cppset[int]({row for row in range(self.data.base.shape[0]) if row not in filled})
 
-    def create_shared_block(self, to_share, ops):
-        xp = ops.xp
-        shm = shared_memory.SharedMemory(create=True, size=to_share.nbytes)
-        # Now create a NumPy array backed by shared memory
-        np_array = xp.ndarray(to_share.shape, dtype='f', buffer=shm.buf)
-        # Copy the original data into shared memory
-        np_array[:] = to_share[:]
-        return shm, np_array.shape
+    def create_shared_memory(self, data):
+        ops = get_current_ops()
+        self.shm = shared_memory.SharedMemory(size=data.nbytes, create=True)
+        shm_np_array = np.ndarray(shape=data.shape, dtype=data.dtype, buffer=self.shm.buf)
+        ops.xp.copyto(shm_np_array, data)
+        self.vectors_shared_name = self.shm.name
+        self.vectors_shared_shape = data.shape
+        self.data = shm_np_array
 
-    def get_data_from_shared_memory(self, ops):
-        xp = ops.xp
-        if self.shared_memory_name is not None and self.shared_memory_shape is not None:
-            existing_shm = shared_memory.SharedMemory(name=self.shared_memory_name)
-            self.data = xp.ndarray(self.shared_memory_shape, dtype='f', buffer=existing_shm.buf)
+    def get_data_from_shared_memory(self):
+        ops = get_current_ops()
+        if self.vectors_shared_name is not None and self.vectors_shared_shape is not None and self.vectors_shared_dtype is not None:
+            self.shm = shared_memory.SharedMemory(name=self.vectors_shared_name)
+            self.data = np.ndarray(shape=self.vectors_shared_shape, buffer=self.shm.buf, dtype=self.vectors_shared_dtype)
+
+    def set_shared_properties(self, shared):
+        if isinstance(shared, dict):
+            vectors_info = shared.get('vectors', {})
+            self._vectors_shared_shape = vectors_info.get('shape')
+            self._vectors_shared_name = vectors_info.get('name')
+            self._vectors_shared_dtype = vectors_info.get('dtype')
+
+    def close_shared_memory(self):
+        self.shm.close()
+
+    def unlink_shared_memory(self):
+        try:
+            self.shm.unlink()
+        except FileNotFoundError:
+            pass

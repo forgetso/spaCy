@@ -22,7 +22,7 @@ from .lang.norm_exceptions import BASE_NORMS
 from .lang.lex_attrs import LEX_ATTRS, is_stop, get_lang
 
 
-def create_vocab(lang, defaults, vectors_name=None, load_data=True):
+def create_vocab(lang, defaults, vectors_name=None, load_data=True, shared=None):
     # If the spacy-lookups-data package is installed, we pre-populate the lookups
     # with lexeme data, if available
     if load_data:
@@ -46,6 +46,7 @@ def create_vocab(lang, defaults, vectors_name=None, load_data=True):
         writing_system=defaults.writing_system,
         get_noun_chunks=defaults.syntax_iterators.get("noun_chunks"),
         vectors_name=vectors_name,
+        shared=shared
     )
 
 
@@ -58,7 +59,7 @@ cdef class Vocab:
     """
     def __init__(self, lex_attr_getters=None, strings=tuple(), lookups=None,
                  oov_prob=-20., vectors_name=None, writing_system={},
-                 get_noun_chunks=None, **deprecated_kwargs):
+                 get_noun_chunks=None, shared=None,data=None, **deprecated_kwargs):
         """Create the vocabulary.
 
         lex_attr_getters (dict): A dictionary mapping attribute IDs to
@@ -82,7 +83,7 @@ cdef class Vocab:
                 _ = self[string]
         self.lex_attr_getters = lex_attr_getters
         self.morphology = Morphology(self.strings)
-        self.vectors = Vectors(name=vectors_name)
+        self.vectors = Vectors(name=vectors_name, shared=shared, data=data)
         self.lookups = lookups
         self.writing_system = writing_system
         self.get_noun_chunks = get_noun_chunks

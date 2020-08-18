@@ -211,6 +211,7 @@ def load_model(
     vocab: Union["Vocab", bool] = True,
     disable: Iterable[str] = tuple(),
     config: Union[Dict[str, Any], Config] = SimpleFrozenDict(),
+    shared=None,
 ) -> "Language":
     """Load a model from a package or data path.
 
@@ -222,7 +223,7 @@ def load_model(
         keyed by section values in dot notation.
     RETURNS (Language): The loaded nlp object.
     """
-    kwargs = {"vocab": vocab, "disable": disable, "config": config}
+    kwargs = {"vocab": vocab, "disable": disable, "config": config, 'shared': shared}
     if isinstance(name, str):  # name or string path
         if name.startswith("blank:"):  # shortcut for blank model
             return get_lang_class(name.replace("blank:", ""))()
@@ -256,6 +257,7 @@ def load_model_from_path(
     vocab: Union["Vocab", bool] = True,
     disable: Iterable[str] = tuple(),
     config: Union[Dict[str, Any], Config] = SimpleFrozenDict(),
+    shared: dict = None
 ) -> "Language":
     """Load a model from a data directory path. Creates Language class with
     pipeline from config.cfg and then calls from_disk() with path."""
@@ -267,7 +269,7 @@ def load_model_from_path(
     if not config_path.exists() or not config_path.is_file():
         raise IOError(Errors.E053.format(path=config_path, name="config.cfg"))
     config = Config().from_disk(config_path, overrides=dict_to_dot(config))
-    nlp, _ = load_model_from_config(config, vocab=vocab, disable=disable)
+    nlp, _ = load_model_from_config(config, vocab=vocab, disable=disable, shared=shared)
     return nlp.from_disk(model_path, exclude=disable)
 
 
@@ -278,6 +280,7 @@ def load_model_from_config(
     disable: Iterable[str] = tuple(),
     auto_fill: bool = False,
     validate: bool = True,
+    shared: dict = None
 ) -> Tuple["Language", Config]:
     """Create an nlp object from a config. Expects the full config file including
     a section "nlp" containing the settings for the nlp object.
@@ -291,7 +294,7 @@ def load_model_from_config(
     # registry, including custom subclasses provided via entry points
     lang_cls = get_lang_class(nlp_config["lang"])
     nlp = lang_cls.from_config(
-        config, vocab=vocab, disable=disable, auto_fill=auto_fill, validate=validate,
+        config, vocab=vocab, disable=disable, auto_fill=auto_fill, validate=validate, shared=shared
     )
     return nlp, nlp.resolved
 

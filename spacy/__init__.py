@@ -28,6 +28,7 @@ def load(
     name: Union[str, Path],
     disable: Iterable[str] = tuple(),
     config: Union[Dict[str, Any], Config] = util.SimpleFrozenDict(),
+    shared: dict = None,
 ) -> Language:
     """Load a spaCy model from an installed package or a local path.
 
@@ -37,7 +38,7 @@ def load(
         keyed by section values in dot notation.
     RETURNS (Language): The loaded nlp object.
     """
-    return util.load_model(name, disable=disable, config=config)
+    return util.load_model(name, disable=disable, config=config, shared=shared)
 
 
 def blank(name: str, **overrides) -> Language:
