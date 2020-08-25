@@ -545,6 +545,7 @@ cdef class Vectors:
             self.shm = shared_memory.SharedMemory(size=size, create=True)
             self.vectors_shared_name = self.shm.name
             self.vectors_shared_shape = data.shape
+            self.vectors_shared_dtype = data.dtype
             if copyto:
                 shm_np_array = np.ndarray(shape=data.shape, dtype=data.dtype, buffer=self.shm.buf)
                 ops.xp.copyto(shm_np_array, data)

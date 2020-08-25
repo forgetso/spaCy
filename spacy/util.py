@@ -249,6 +249,7 @@ def load_model_from_package(
     vocab: Union["Vocab", bool] = True,
     disable: Iterable[str] = tuple(),
     config: Union[Dict[str, Any], Config] = SimpleFrozenDict(),
+    shared: Optional[Dict[str, Dict]]
 ) -> "Language":
     """Load a model from an installed package."""
     cls = importlib.import_module(name)
