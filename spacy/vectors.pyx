@@ -51,9 +51,9 @@ cdef class Vectors:
     cdef public object shm
     cdef public float[:, :] data
     cdef public object key2row
-    cdef public object _vectors_shared_name
-    cdef public object _vectors_shared_shape
-    cdef public object _vectors_shared_dtype
+    cdef public object __vectors_shared_name
+    cdef public object __vectors_shared_shape
+    cdef public object __vectors_shared_dtype
     cdef cppset[int] _unset
 
     def __init__(self, *, shape=None, data=None, keys=None, name=None, shared=None):
@@ -68,6 +68,9 @@ cdef class Vectors:
         """
         self.name = name
         self.shm = None
+        self.__vectors_shared_name = None
+        self.__vectors_shared_shape = None
+        self.__vectors_shared_dtype = None
 
         if data is None:
             if shape is None:
@@ -90,40 +93,15 @@ cdef class Vectors:
 
     @property
     def vectors_shared_name(self):
-        return self._vectors_shared_name
-
-    @vectors_shared_name.setter
-    def vectors_shared_name(self, value):
-        self._vectors_shared_name = value
-
-    @vectors_shared_name.deleter
-    def vectors_shared_name(self):
-        del self._vectors_shared_name
+        return self.__vectors_shared_name
 
     @property
     def vectors_shared_shape(self):
-        return self._vectors_shared_shape
-
-    @vectors_shared_shape.setter
-    def vectors_shared_shape(self, value):
-        self._vectors_shared_shape = value
-
-    @vectors_shared_shape.deleter
-    def vectors_shared_shape(self):
-        del self._vectors_shared_shape
+        return self.__vectors_shared_shape
 
     @property
     def vectors_shared_dtype(self):
-        return self._vectors_shared_dtype
-
-    @vectors_shared_dtype.setter
-    def vectors_shared_dtype(self, value):
-        self._vectors_shared_dtype = value
-
-    @vectors_shared_dtype.deleter
-    def vectors_shared_dtype(self):
-        del self._vectors_shared_dtype
-
+        return self.__vectors_shared_dtype
 
     @property
     def shape(self):
@@ -543,9 +521,9 @@ cdef class Vectors:
                     copyto = True
 
             self.shm = shared_memory.SharedMemory(size=size, create=True)
-            self.vectors_shared_name = self.shm.name
-            self.vectors_shared_shape = data.shape
-            self.vectors_shared_dtype = data.dtype
+            self.__vectors_shared_name = self.shm.name
+            self.__vectors_shared_shape = data.shape
+            self.__vectors_shared_dtype = data.dtype.name
             if copyto:
                 shm_np_array = np.ndarray(shape=data.shape, dtype=data.dtype, buffer=self.shm.buf)
                 ops.xp.copyto(shm_np_array, data)
@@ -564,9 +542,9 @@ cdef class Vectors:
     def set_shared_properties(self, shared):
         if isinstance(shared, dict):
             vectors_info = shared.get('vectors', {})
-            self._vectors_shared_shape = vectors_info.get('shape')
-            self._vectors_shared_name = vectors_info.get('name')
-            self._vectors_shared_dtype = vectors_info.get('dtype')
+            self.__vectors_shared_shape = vectors_info.get('shape')
+            self.__vectors_shared_name = vectors_info.get('name')
+            self.__vectors_shared_dtype = vectors_info.get('dtype')
 
     def close_shared_memory(self):
         self.shm.close()
