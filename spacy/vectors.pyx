@@ -448,7 +448,7 @@ cdef class Vectors:
         def load_vectors(path):
             ops = get_current_ops()
             # this is the shape that data will have if class has been init'd with no shared memory
-            if self.data.base.shape == (0, 0):
+            if not ops.xp.any(self.data.base):
                 if path.exists():
                     data = ops.xp.load(str(path))
                     # create the shared memory for vectors which can be used to pass to other spacy instances
