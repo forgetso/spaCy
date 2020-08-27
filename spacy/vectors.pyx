@@ -1,7 +1,7 @@
 cimport numpy as np
 from cython.operator cimport dereference as deref
 from libcpp.set cimport set as cppset
-
+import uuid
 import functools
 import numpy
 import srsly
@@ -14,6 +14,7 @@ from .errors import Errors
 from . import util
 from multiprocessing import shared_memory, Lock
 import sys
+import gc
 
 def unpickle_vectors(bytes_data):
     return Vectors().from_bytes(bytes_data)
@@ -461,6 +462,7 @@ cdef class Vectors:
 
         util.from_disk(path, serializers, [])
         self._sync_unset()
+        gc.collect()
         return self
 
     def to_bytes(self, **kwargs):
@@ -535,9 +537,11 @@ cdef class Vectors:
 
     def get_data_from_shared_memory(self):
         ops = get_current_ops()
-        if self.vectors_shared_name is not None and self.vectors_shared_shape is not None and self.vectors_shared_dtype is not None:
-            self.shm = shared_memory.SharedMemory(name=self.vectors_shared_name)
-            self.data = np.ndarray(shape=self.vectors_shared_shape, buffer=self.shm.buf, dtype=self.vectors_shared_dtype)
+        if self.__vectors_shared_name is not None and self.__vectors_shared_shape is not None and self.__vectors_shared_dtype is not None:
+            self.shm = shared_memory.SharedMemory(name=self.__vectors_shared_name)
+            self.data = ops.xp.ndarray(shape=self.__vectors_shared_shape, buffer=self.shm.buf, dtype=self.__vectors_shared_dtype)
+            gc.collect()
+
 
     def set_shared_properties(self, shared):
         if isinstance(shared, dict):
@@ -547,10 +551,17 @@ cdef class Vectors:
             self.__vectors_shared_dtype = vectors_info.get('dtype')
 
     def close_shared_memory(self):
-        self.shm.close()
+        try:
+            self.shm.close()
+        except FileNotFoundError:
+            pass
 
     def unlink_shared_memory(self):
         try:
             self.shm.unlink()
         except FileNotFoundError:
             pass
+
+    def _get_shared_name(self):
+        # make a name for the shared memory - add some random letters to the end for uniqueness
+        return '_'.join(['spacy_', str(self.name), uuid.uuid4().hex[0:6]])
