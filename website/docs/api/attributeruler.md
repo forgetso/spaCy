@@ -12,7 +12,8 @@ The attribute ruler lets you set token attributes for tokens identified by
 [`Matcher` patterns](/usage/rule-based-matching#matcher). The attribute ruler is
 typically used to handle exceptions for token attributes and to map values
 between attributes such as mapping fine-grained POS tags to coarse-grained POS
-tags.
+tags. See the [usage guide](/usage/linguistic-features/#mappings-exceptions) for
+examples.
 
 ## Config and implementation {#config}
 
@@ -24,54 +25,40 @@ how the component should be configured. You can override its settings via the
 > #### Example
 >
 > ```python
-> config = {
->    "pattern_dicts": None,
->    "validate": True,
-> }
+> config = {"validate": True}
 > nlp.add_pipe("attribute_ruler", config=config)
 > ```
 
-| Setting         | Description                                                                                                                                                                                                                                    |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pattern_dicts` | A list of pattern dicts with the keys as the arguments to [`AttributeRuler.add`](/api/attributeruler#add) (`patterns`/`attrs`/`index`) to add as patterns. Defaults to `None`. ~~Optional[Iterable[Dict[str, Union[List[dict], dict, int]]]]~~ |
-| `validate`      | Whether patterns should be validated (passed to the `Matcher`). Defaults to `False`. ~~bool~~                                                                                                                                                  |
+| Setting    | Description                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| `validate` | Whether patterns should be validated (passed to the `Matcher`). Defaults to `False`. ~~bool~~ |
 
 ```python
-https://github.com/explosion/spaCy/blob/develop/spacy/pipeline/attributeruler.py
+%%GITHUB_SPACY/spacy/pipeline/attributeruler.py
 ```
 
 ## AttributeRuler.\_\_init\_\_ {#init tag="method"}
 
-Initialize the attribute ruler. If pattern dicts are supplied here, they need to
-be a list of dictionaries with `"patterns"`, `"attrs"`, and optional `"index"`
-keys, e.g.:
-
-```python
-pattern_dicts = [
-    {"patterns": [[{"TAG": "VB"}]], "attrs": {"POS": "VERB"}},
-    {"patterns": [[{"LOWER": "an"}]], "attrs": {"LEMMA": "a"}},
-]
-```
+Initialize the attribute ruler.
 
 > #### Example
 >
 > ```python
 > # Construction via add_pipe
-> attribute_ruler = nlp.add_pipe("attribute_ruler")
+> ruler = nlp.add_pipe("attribute_ruler")
 > ```
 
-| Name            | Description                                                                                                                              |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `vocab`         | The shared vocabulary to pass to the matcher. ~~Vocab~~                                                                                  |
-| `name`          | Instance name of the current pipeline component. Typically passed in automatically from the factory when the component is added. ~~str~~ |
-| _keyword-only_  |                                                                                                                                          |
-| `pattern_dicts` | Optional patterns to load in on initialization. Defaults to `None`. ~~Optional[Iterable[Dict[str, Union[List[dict], dict, int]]]]~~      |
-| `validate`      | Whether patterns should be validated (passed to the [`Matcher`](/api/matcher#init)). Defaults to `False`. ~~bool~~                       |
+| Name           | Description                                                                                                                              |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `vocab`        | The shared vocabulary to pass to the matcher. ~~Vocab~~                                                                                  |
+| `name`         | Instance name of the current pipeline component. Typically passed in automatically from the factory when the component is added. ~~str~~ |
+| _keyword-only_ |                                                                                                                                          |
+| `validate`     | Whether patterns should be validated (passed to the [`Matcher`](/api/matcher#init)). Defaults to `False`. ~~bool~~                       |
 
 ## AttributeRuler.\_\_call\_\_ {#call tag="method"}
 
-Apply the attribute ruler to a Doc, setting token attributes for tokens matched
-by the provided patterns.
+Apply the attribute ruler to a `Doc`, setting token attributes for tokens
+matched by the provided patterns.
 
 | Name        | Description                      |
 | ----------- | -------------------------------- |
@@ -89,10 +76,10 @@ may be negative to index from the end of the span.
 > #### Example
 >
 > ```python
-> attribute_ruler = nlp.add_pipe("attribute_ruler")
+> ruler = nlp.add_pipe("attribute_ruler")
 > patterns = [[{"TAG": "VB"}]]
 > attrs = {"POS": "VERB"}
-> attribute_ruler.add(patterns=patterns, attrs=attrs)
+> ruler.add(patterns=patterns, attrs=attrs)
 > ```
 
 | Name       | Description                                                                                                                       |
@@ -106,11 +93,10 @@ may be negative to index from the end of the span.
 > #### Example
 >
 > ```python
-> attribute_ruler = nlp.add_pipe("attribute_ruler")
-> pattern_dicts = [
+> ruler = nlp.add_pipe("attribute_ruler")
+> patterns = [
 >   {
->     "patterns": [[{"TAG": "VB"}]],
->     "attrs": {"POS": "VERB"}
+>     "patterns": [[{"TAG": "VB"}]], "attrs": {"POS": "VERB"}
 >   },
 >   {
 >     "patterns": [[{"LOWER": "two"}, {"LOWER": "apples"}]],
@@ -118,15 +104,16 @@ may be negative to index from the end of the span.
 >     "index": -1
 >   },
 > ]
-> attribute_ruler.add_patterns(pattern_dicts)
+> ruler.add_patterns(patterns)
 > ```
 
-Add patterns from a list of pattern dicts with the keys as the arguments to
+Add patterns from a list of pattern dicts. Each pattern dict can specify the
+keys `"patterns"`, `"attrs"` and `"index"`, which match the arguments of
 [`AttributeRuler.add`](/api/attributeruler#add).
 
-| Name            | Description                                                                |
-| --------------- | -------------------------------------------------------------------------- |
-| `pattern_dicts` | The patterns to add. ~~Iterable[Dict[str, Union[List[dict], dict, int]]]~~ |
+| Name       | Description                                                                |
+| ---------- | -------------------------------------------------------------------------- |
+| `patterns` | The patterns to add. ~~Iterable[Dict[str, Union[List[dict], dict, int]]]~~ |
 
 ## AttributeRuler.patterns {#patterns tag="property"}
 
@@ -137,6 +124,40 @@ Get all patterns that have been added to the attribute ruler in the
 | Name        | Description                                                                                  |
 | ----------- | -------------------------------------------------------------------------------------------- |
 | **RETURNS** | The patterns added to the attribute ruler. ~~List[Dict[str, Union[List[dict], dict, int]]]~~ |
+
+## AttributeRuler.initialize {#initialize tag="method"}
+
+Initialize the component with data and used before training to load in rules
+from a file. This method is typically called by
+[`Language.initialize`](/api/language#initialize) and lets you customize
+arguments it receives via the
+[`[initialize.components]`](/api/data-formats#config-initialize) block in the
+config.
+
+> #### Example
+>
+> ```python
+> ruler = nlp.add_pipe("attribute_ruler")
+> ruler.initialize(lambda: [], nlp=nlp, patterns=patterns)
+> ```
+>
+> ```ini
+> ### config.cfg
+> [initialize.components.attribute_ruler]
+>
+> [initialize.components.attribute_ruler.patterns]
+> @readers = "srsly.read_json.v1"
+> path = "corpus/attribute_ruler_patterns.json
+> ```
+
+| Name           | Description                                                                                                                                                                                                                                    |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_examples` | Function that returns gold-standard annotations in the form of [`Example`](/api/example) objects (the training data). Not used by this component. ~~Callable[[], Iterable[Example]]~~                                                          |
+| _keyword-only_ |                                                                                                                                                                                                                                                |
+| `nlp`          | The current `nlp` object. Defaults to `None`. ~~Optional[Language]~~                                                                                                                                                                           |
+| `patterns`     | A list of pattern dicts with the keys as the arguments to [`AttributeRuler.add`](/api/attributeruler#add) (`patterns`/`attrs`/`index`) to add as patterns. Defaults to `None`. ~~Optional[Iterable[Dict[str, Union[List[dict], dict, int]]]]~~ |
+| `tag_map`      | The tag map that maps fine-grained tags to coarse-grained tags and morphological features. Defaults to `None`. ~~Optional[Dict[str, Dict[Union[int, str], Union[int, str]]]]~~                                                                 |
+| `morph_rules`  | The morph rules that map token text and fine-grained tags to coarse-grained tags, lemmas and morphological features. Defaults to `None`. ~~Optional[Dict[str, Dict[str, Dict[Union[int, str], Union[int, str]]]]]~~                            |
 
 ## AttributeRuler.load_from_tag_map {#load_from_tag_map tag="method"}
 
@@ -154,6 +175,21 @@ Load attribute ruler patterns from morph rules.
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `morph_rules` | The morph rules that map token text and fine-grained tags to coarse-grained tags, lemmas and morphological features. ~~Dict[str, Dict[str, Dict[Union[int, str], Union[int, str]]]]~~ |
 
+## AttributeRuler.score {#score tag="method" new="3"}
+
+Score a batch of examples.
+
+> #### Example
+>
+> ```python
+> scores = ruler.score(examples)
+> ```
+
+| Name        | Description                                                                                                                                                                                                           |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `examples`  | The examples to score. ~~Iterable[Example]~~                                                                                                                                                                          |
+| **RETURNS** | The scores, produced by [`Scorer.score_token_attr`](/api/scorer#score_token_attr) for the attributes `"tag"`, `"pos"`, `"morph"` and `"lemma"` if present in any of the target token attributes. ~~Dict[str, float]~~ |
+
 ## AttributeRuler.to_disk {#to_disk tag="method"}
 
 Serialize the pipe to disk.
@@ -161,8 +197,8 @@ Serialize the pipe to disk.
 > #### Example
 >
 > ```python
-> attribute_ruler = nlp.add_pipe("attribute_ruler")
-> attribute_ruler.to_disk("/path/to/attribute_ruler")
+> ruler = nlp.add_pipe("attribute_ruler")
+> ruler.to_disk("/path/to/attribute_ruler")
 > ```
 
 | Name           | Description                                                                                                                                |
@@ -178,8 +214,8 @@ Load the pipe from disk. Modifies the object in place and returns it.
 > #### Example
 >
 > ```python
-> attribute_ruler = nlp.add_pipe("attribute_ruler")
-> attribute_ruler.from_disk("/path/to/attribute_ruler")
+> ruler = nlp.add_pipe("attribute_ruler")
+> ruler.from_disk("/path/to/attribute_ruler")
 > ```
 
 | Name           | Description                                                                                     |
@@ -194,8 +230,8 @@ Load the pipe from disk. Modifies the object in place and returns it.
 > #### Example
 >
 > ```python
-> attribute_ruler = nlp.add_pipe("attribute_ruler")
-> attribute_ruler_bytes = attribute_ruler.to_bytes()
+> ruler = nlp.add_pipe("attribute_ruler")
+> ruler = ruler.to_bytes()
 > ```
 
 Serialize the pipe to a bytestring.
@@ -213,9 +249,9 @@ Load the pipe from a bytestring. Modifies the object in place and returns it.
 > #### Example
 >
 > ```python
-> attribute_ruler_bytes = attribute_ruler.to_bytes()
-> attribute_ruler = nlp.add_pipe("attribute_ruler")
-> attribute_ruler.from_bytes(attribute_ruler_bytes)
+> ruler_bytes = ruler.to_bytes()
+> ruler = nlp.add_pipe("attribute_ruler")
+> ruler.from_bytes(ruler_bytes)
 > ```
 
 | Name           | Description                                                                                 |
@@ -234,12 +270,12 @@ serialization by passing in the string names via the `exclude` argument.
 > #### Example
 >
 > ```python
-> data = attribute_ruler.to_disk("/path", exclude=["vocab"])
+> data = ruler.to_disk("/path", exclude=["vocab"])
 > ```
 
-| Name       | Description                                                    |
-| ---------- | -------------------------------------------------------------- |
-| `vocab`    | The shared [`Vocab`](/api/vocab).                              |
-| `patterns` | The Matcher patterns. You usually don't want to exclude this.  |
-| `attrs`    | The attributes to set. You usually don't want to exclude this. |
-| `indices`  | The token indices. You usually don't want to exclude this.     |
+| Name       | Description                                                     |
+| ---------- | --------------------------------------------------------------- |
+| `vocab`    | The shared [`Vocab`](/api/vocab).                               |
+| `patterns` | The `Matcher` patterns. You usually don't want to exclude this. |
+| `attrs`    | The attributes to set. You usually don't want to exclude this.  |
+| `indices`  | The token indices. You usually don't want to exclude this.      |

@@ -23,10 +23,10 @@ The quickest way to visualize `Doc` is to use
 [`displacy.serve`](/api/top-level#displacy.serve). This will spin up a simple
 web server and let you view the result straight from your browser. displaCy can
 either take a single `Doc` or a list of `Doc` objects as its first argument.
-This lets you construct them however you like – using any model or modifications
-you like. If you're using [Streamlit](https://streamlit.io), check out the
-[`spacy-streamlit`](https://github.com/explosion/spacy-streamlit) package that
-helps you integrate spaCy visualizations into your apps!
+This lets you construct them however you like – using any pipeline or
+modifications you like. If you're using [Streamlit](https://streamlit.io), check
+out the [`spacy-streamlit`](https://github.com/explosion/spacy-streamlit)
+package that helps you integrate spaCy visualizations into your apps!
 
 ## Visualizing the dependency parse {#dep}
 
@@ -131,8 +131,8 @@ example, you can choose to display `PERSON` entities. Internally, the visualizer
 knows nothing about available entity types and will render whichever spans and
 labels it receives. This makes it especially easy to work with custom entity
 types. By default, displaCy comes with colors for all entity types used by
-[spaCy models](/models). If you're using custom entity types, you can use the
-`colors` setting to add your own colors for them.
+[trained spaCy pipelines](/models). If you're using custom entity types, you can
+use the `colors` setting to add your own colors for them.
 
 > #### Options example
 >
@@ -149,7 +149,7 @@ import DisplacyEntCustomHtml from 'images/displacy-ent-custom.html'
 The above example uses a little trick: Since the background color values are
 added as the `background` style attribute, you can use any
 [valid background value](https://tympanus.net/codrops/css_reference/background/)
-or shorthand — including gradients and even images!
+or shorthand – including gradients and even images!
 
 ### Adding titles to documents {#ent-titles}
 
@@ -176,7 +176,7 @@ visualizations will be included as HTML.
 
 ```python
 ### Jupyter example
-# Don't forget to install a model, e.g.: python -m spacy download en
+# Don't forget to install a trained pipeline, e.g.: python -m spacy download en
 
 # In[1]:
 import spacy
@@ -257,7 +257,7 @@ output_path.open("w", encoding="utf-8").write(svg)
 Since each visualization is generated as a separate SVG, exporting `.svg` files
 only works if you're rendering **one single doc** at a time. (This makes sense –
 after all, each visualization should be a standalone graphic.) So instead of
-rendering all `Doc`s at one, loop over them and export them separately.
+rendering all `Doc`s at once, loop over them and export them separately.
 
 </Infobox>
 

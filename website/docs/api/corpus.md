@@ -2,14 +2,16 @@
 title: Corpus
 teaser: An annotated corpus
 tag: class
-source: spacy/gold/corpus.py
+source: spacy/training/corpus.py
 new: 3
 ---
 
 This class manages annotated corpora and can be used for training and
-development datasets in the [DocBin](/api/docbin) (`.spacy`) format. To
+development datasets in the [`DocBin`](/api/docbin) (`.spacy`) format. To
 customize the data loading during training, you can register your own
-[data readers and batchers](/usage/training#custom-code-readers-batchers).
+[data readers and batchers](/usage/training#custom-code-readers-batchers). Also
+see the usage guide on [data utilities](/usage/training#data) for more details
+and examples.
 
 ## Config and implementation {#config}
 
@@ -26,23 +28,25 @@ streaming.
 > [paths]
 > train = "corpus/train.spacy"
 >
-> [training.train_corpus]
+> [corpora.train]
 > @readers = "spacy.Corpus.v1"
 > path = ${paths.train}
 > gold_preproc = false
 > max_length = 0
 > limit = 0
+> augmenter = null
 > ```
 
-| Name            | Description                                                                                                                                              |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `path`          | The directory or filename to read from. Expects data in spaCy's binary [`.spacy` format](/api/data-formats#binary-training). ~~Path~~                    |
-|  `gold_preproc` | Whether to set up the Example object with gold-standard sentences and tokens for the predictions. See [`Corpus`](/api/corpus#init) for details. ~~bool~~ |
-| `max_length`    | Maximum document length. Longer documents will be split into sentences, if sentence boundaries are available. Defaults to `0` for no limit. ~~int~~      |
-| `limit`         | Limit corpus to a subset of examples, e.g. for debugging. Defaults to `0` for no limit. ~~int~~                                                          |
+| Name            | Description                                                                                                                                                                                                                                                                              |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`          | The directory or filename to read from. Expects data in spaCy's binary [`.spacy` format](/api/data-formats#binary-training). ~~Path~~                                                                                                                                                    |
+|  `gold_preproc` | Whether to set up the Example object with gold-standard sentences and tokens for the predictions. See [`Corpus`](/api/corpus#init) for details. ~~bool~~                                                                                                                                 |
+| `max_length`    | Maximum document length. Longer documents will be split into sentences, if sentence boundaries are available. Defaults to `0` for no limit. ~~int~~                                                                                                                                      |
+| `limit`         | Limit corpus to a subset of examples, e.g. for debugging. Defaults to `0` for no limit. ~~int~~                                                                                                                                                                                          |
+| `augmenter`     | Apply some simply data augmentation, where we replace tokens with variations. This is especially useful for punctuation and case replacement, to help generalize beyond corpora that don't have smart-quotes, or only have smart quotes, etc. Defaults to `None`. ~~Optional[Callable]~~ |
 
 ```python
-https://github.com/explosion/spaCy/blob/develop/spacy/gold/corpus.py
+%%GITHUB_SPACY/spacy/training/corpus.py
 ```
 
 ## Corpus.\_\_init\_\_ {#init tag="method"}
@@ -58,7 +62,7 @@ train/test skew.
 > #### Example
 >
 > ```python
-> from spacy.gold import Corpus
+> from spacy.training import Corpus
 >
 > # With a single file
 > corpus = Corpus("./data/train.spacy")
@@ -74,6 +78,7 @@ train/test skew.
 |  `gold_preproc` | Whether to set up the Example object with gold-standard sentences and tokens for the predictions. Defaults to `False`. ~~bool~~                     |
 | `max_length`    | Maximum document length. Longer documents will be split into sentences, if sentence boundaries are available. Defaults to `0` for no limit. ~~int~~ |
 | `limit`         | Limit corpus to a subset of examples, e.g. for debugging. Defaults to `0` for no limit. ~~int~~                                                     |
+| `augmenter`     | Optional data augmentation callback. ~~Callable[[Language, Example], Iterable[Example]]~~                                                           |
 
 ## Corpus.\_\_call\_\_ {#call tag="method"}
 
@@ -82,12 +87,88 @@ Yield examples from the data.
 > #### Example
 >
 > ```python
-> from spacy.gold import Corpus
+> from spacy.training import Corpus
 > import spacy
 >
 > corpus = Corpus("./train.spacy")
 > nlp = spacy.blank("en")
 > train_data = corpus(nlp)
+> ```
+
+| Name       | Description                            |
+| ---------- | -------------------------------------- |
+| `nlp`      | The current `nlp` object. ~~Language~~ |
+| **YIELDS** | The examples. ~~Example~~              |
+
+## JsonlCorpus {#jsonlcorpus tag="class"}
+
+Iterate Doc objects from a file or directory of JSONL (newline-delimited JSON)
+formatted raw text files. Can be used to read the raw text corpus for language
+model [pretraining](/usage/embeddings-transformers#pretraining) from a JSONL
+file.
+
+> #### Tip: Writing JSONL
+>
+> Our utility library [`srsly`](https://github.com/explosion/srsly) provides a
+> handy `write_jsonl` helper that takes a file path and list of dictionaries and
+> writes out JSONL-formatted data.
+>
+> ```python
+> import srsly
+> data = [{"text": "Some text"}, {"text": "More..."}]
+> srsly.write_jsonl("/path/to/text.jsonl", data)
+> ```
+
+```json
+### Example
+{"text": "Can I ask where you work now and what you do, and if you enjoy it?"}
+{"text": "They may just pull out of the Seattle market completely, at least until they have autonomous vehicles."}
+{"text": "My cynical view on this is that it will never be free to the public. Reason: what would be the draw of joining the military? Right now their selling point is free Healthcare and Education. Ironically both are run horribly and most, that I've talked to, come out wishing they never went in."}
+```
+
+### JsonlCorpus.\_\init\_\_ {#jsonlcorpus tag="method"}
+
+Initialize the reader.
+
+> #### Example
+>
+> ```python
+> from spacy.training import JsonlCorpus
+>
+> corpus = JsonlCorpus("./data/texts.jsonl")
+> ```
+>
+> ```ini
+> ### Example config
+> [corpora.pretrain]
+> @readers = "spacy.JsonlCorpus.v1"
+> path = "corpus/raw_text.jsonl"
+> min_length = 0
+> max_length = 0
+> limit = 0
+> ```
+
+| Name           | Description                                                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `path`         | The directory or filename to read from. Expects newline-delimited JSON with a key `"text"` for each record. ~~Union[str, Path]~~ |
+| _keyword-only_ |                                                                                                                                  |
+| `min_length`   | Minimum document length (in tokens). Shorter documents will be skipped. Defaults to `0`, which indicates no limit. ~~int~~       |
+| `max_length`   | Maximum document length (in tokens). Longer documents will be skipped. Defaults to `0`, which indicates no limit. ~~int~~        |
+| `limit`        | Limit corpus to a subset of examples, e.g. for debugging. Defaults to `0` for no limit. ~~int~~                                  |
+
+### JsonlCorpus.\_\_call\_\_ {#jsonlcorpus-call tag="method"}
+
+Yield examples from the data.
+
+> #### Example
+>
+> ```python
+> from spacy.training import JsonlCorpus
+> import spacy
+>
+> corpus = JsonlCorpus("./texts.jsonl")
+> nlp = spacy.blank("en")
+> data = corpus(nlp)
 > ```
 
 | Name       | Description                            |

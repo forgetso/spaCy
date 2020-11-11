@@ -13,7 +13,7 @@ export default function Tag({ spaced = false, variant, tooltip, children }) {
         const isValid = isString(children) && !isNaN(children)
         const version = isValid ? Number(children).toFixed(1) : children
         const tooltipText = `This feature is new and was introduced in spaCy v${version}`
-        // TODO: we probably want to handle this more elegantly, but the idea is
+        // We probably want to handle this more elegantly, but the idea is
         // that we can hide tags referring to old versions
         const major = isString(version) ? Number(version.split('.')[0]) : version
         return major < MIN_VERSION ? null : (
@@ -23,7 +23,7 @@ export default function Tag({ spaced = false, variant, tooltip, children }) {
         )
     }
     if (variant === 'model') {
-        const tooltipText = `To use this functionality, spaCy needs a model to be installed that supports the following capabilities: ${children}`
+        const tooltipText = `To use this functionality, spaCy needs a trained pipeline that supports the following capabilities: ${children}`
         return (
             <TagTemplate spaced={spaced} tooltip={tooltipText}>
                 Needs model

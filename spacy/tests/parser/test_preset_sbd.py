@@ -3,7 +3,7 @@ from thinc.api import Adam
 from spacy.attrs import NORM
 from spacy.vocab import Vocab
 from spacy import registry
-from spacy.gold import Example
+from spacy.training import Example
 from spacy.pipeline.dep_parser import DEFAULT_PARSER_MODEL
 from spacy.tokens import Doc
 from spacy.pipeline import DependencyParser
@@ -14,6 +14,12 @@ def vocab():
     return Vocab(lex_attr_getters={NORM: lambda s: s})
 
 
+def _parser_example(parser):
+    doc = Doc(parser.vocab, words=["a", "b", "c", "d"])
+    gold = {"heads": [1, 1, 3, 3], "deps": ["right", "ROOT", "left", "ROOT"]}
+    return Example.from_dict(doc, gold)
+
+
 @pytest.fixture
 def parser(vocab):
     config = {
@@ -22,13 +28,13 @@ def parser(vocab):
         "update_with_oracle_cut_size": 100,
     }
     cfg = {"model": DEFAULT_PARSER_MODEL}
-    model = registry.make_from_config(cfg, validate=True)["model"]
+    model = registry.resolve(cfg, validate=True)["model"]
     parser = DependencyParser(vocab, model, **config)
     parser.cfg["token_vector_width"] = 4
     parser.cfg["hidden_width"] = 32
     # parser.add_label('right')
     parser.add_label("left")
-    parser.begin_training(lambda: [], **parser.cfg)
+    parser.initialize(lambda: [_parser_example(parser)])
     sgd = Adam(0.001)
 
     for i in range(10):

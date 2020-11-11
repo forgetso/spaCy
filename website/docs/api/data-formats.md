@@ -4,20 +4,19 @@ teaser: Details on spaCy's input and output data formats
 menu:
   - ['Training Config', 'config']
   - ['Training Data', 'training']
-  - ['Pretraining Data', 'pretraining']
   - ['Vocabulary', 'vocab-jsonl']
-  - ['Model Meta', 'meta']
+  - ['Pipeline Meta', 'meta']
 ---
 
 This section documents input and output formats of data used by spaCy, including
 the [training config](/usage/training#config), training data and lexical
 vocabulary data. For an overview of label schemes used by the models, see the
-[models directory](/models). Each model documents the label schemes used in its
-components, depending on the data it was trained on.
+[models directory](/models). Each trained pipeline documents the label schemes
+used in its components, depending on the data it was trained on.
 
 ## Training config {#config new="3"}
 
-Config files define the training process and model pipeline and can be passed to
+Config files define the training process and pipeline and can be passed to
 [`spacy train`](/api/cli#train). They use
 [Thinc's configuration system](https://thinc.ai/docs/usage-config) under the
 hood. For details on how to use training configs, see the
@@ -37,7 +36,7 @@ recommended settings for your use case, check out the
 > guide on [registered functions](/usage/training#config-functions) for details.
 
 ```ini
-https://github.com/explosion/spaCy/blob/develop/spacy/default_config.cfg
+%%GITHUB_SPACY/spacy/default_config.cfg
 ```
 
 <Infobox title="Notes on data validation" emoji="💡">
@@ -45,8 +44,7 @@ https://github.com/explosion/spaCy/blob/develop/spacy/default_config.cfg
 Under the hood, spaCy's configs are powered by our machine learning library
 [Thinc's config system](https://thinc.ai/docs/usage-config), which uses
 [`pydantic`](https://github.com/samuelcolvin/pydantic/) for data validation
-based on type hints. See
-[`spacy/schemas.py`](https://github.com/explosion/spaCy/blob/develop/spacy/schemas.py)
+based on type hints. See [`spacy/schemas.py`](%%GITHUB_SPACY/spacy/schemas.py)
 for the schemas used to validate the default config. Arguments of registered
 functions are validated against their type annotations, if available. To debug
 your config and check that it's valid, you can run the
@@ -62,7 +60,6 @@ your config and check that it's valid, you can run the
 > [nlp]
 > lang = "en"
 > pipeline = ["tagger", "parser", "ner"]
-> load_vocab_data = true
 > before_creation = null
 > after_creation = null
 > after_pipeline_creation = null
@@ -74,15 +71,15 @@ your config and check that it's valid, you can run the
 Defines the `nlp` object, its tokenizer and
 [processing pipeline](/usage/processing-pipelines) component names.
 
-| Name                      | Description                                                                                                                                                                                                                      |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lang`                    | Model language [ISO code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes). Defaults to `null`. ~~str~~                                                                                                                    |
-| `pipeline`                | Names of pipeline components in order. Should correspond to sections in the `[components]` block, e.g. `[components.ner]`. See docs on [defining components](/usage/training#config-components). Defaults to `[]`. ~~List[str]~~ |
-| `load_vocab_data`         | Whether to load additional lexeme and vocab data from [`spacy-lookups-data`](https://github.com/explosion/spacy-lookups-data) if available. Defaults to `true`. ~~bool~~                                                         |
-| `before_creation`         | Optional [callback](/usage/training#custom-code-nlp-callbacks) to modify `Language` subclass before it's initialized. Defaults to `null`. ~~Optional[Callable[[Type[Language]], Type[Language]]]~~                               |
-| `after_creation`          | Optional [callback](/usage/training#custom-code-nlp-callbacks) to modify `nlp` object right after it's initialized. Defaults to `null`. ~~Optional[Callable[[Language], Language]]~~                                             |
-| `after_pipeline_creation` | Optional [callback](/usage/training#custom-code-nlp-callbacks) to modify `nlp` object after the pipeline components have been added. Defaults to `null`. ~~Optional[Callable[[Language], Language]]~~                            |
-| `tokenizer`               | The tokenizer to use. Defaults to [`Tokenizer`](/api/tokenizer). ~~Callable[[str], Doc]~~                                                                                                                                        |
+| Name                      | Description                                                                                                                                                                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lang`                    | Pipeline language [ISO code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes). Defaults to `null`. ~~str~~                                                                                                                                                                                        |
+| `pipeline`                | Names of pipeline components in order. Should correspond to sections in the `[components]` block, e.g. `[components.ner]`. See docs on [defining components](/usage/training#config-components). Defaults to `[]`. ~~List[str]~~                                                                        |
+| `disabled`                | Names of pipeline components that are loaded but disabled by default and not run as part of the pipeline. Should correspond to components listed in `pipeline`. After a pipeline is loaded, disabled components can be enabled using [`Language.enable_pipe`](/api/language#enable_pipe). ~~List[str]~~ |
+| `before_creation`         | Optional [callback](/usage/training#custom-code-nlp-callbacks) to modify `Language` subclass before it's initialized. Defaults to `null`. ~~Optional[Callable[[Type[Language]], Type[Language]]]~~                                                                                                      |
+| `after_creation`          | Optional [callback](/usage/training#custom-code-nlp-callbacks) to modify `nlp` object right after it's initialized. Defaults to `null`. ~~Optional[Callable[[Language], Language]]~~                                                                                                                    |
+| `after_pipeline_creation` | Optional [callback](/usage/training#custom-code-nlp-callbacks) to modify `nlp` object after the pipeline components have been added. Defaults to `null`. ~~Optional[Callable[[Language], Language]]~~                                                                                                   |
+| `tokenizer`               | The tokenizer to use. Defaults to [`Tokenizer`](/api/tokenizer). ~~Callable[[str], Doc]~~                                                                                                                                                                                                               |
 
 ### components {#config-components tag="section"}
 
@@ -104,8 +101,8 @@ This section includes definitions of the
 [pipeline components](/usage/processing-pipelines) and their models, if
 available. Components in this section can be referenced in the `pipeline` of the
 `[nlp]` block. Component blocks need to specify either a `factory` (named
-function to use to create component) or a `source` (name of path of pretrained
-model to copy components from). See the docs on
+function to use to create component) or a `source` (name of path of trained
+pipeline to copy components from). See the docs on
 [defining pipeline components](/usage/training#config-components) for details.
 
 ### paths, system {#config-variables tag="variables"}
@@ -122,49 +119,136 @@ that you don't want to hard-code in your config file.
 $ python -m spacy train config.cfg --paths.train ./corpus/train.spacy
 ```
 
+### corpora {#config-corpora tag="section"}
+
+> #### Example
+>
+> ```ini
+> [corpora]
+>
+> [corpora.train]
+> @readers = "spacy.Corpus.v1"
+> path = ${paths:train}
+>
+> [corpora.dev]
+> @readers = "spacy.Corpus.v1"
+> path = ${paths:dev}
+>
+> [corpora.pretrain]
+> @readers = "spacy.JsonlCorpus.v1"
+> path = ${paths.raw}
+>
+> [corpora.my_custom_data]
+> @readers = "my_custom_reader.v1"
+> ```
+
+This section defines a **dictionary** mapping of string keys to functions. Each
+function takes an `nlp` object and yields [`Example`](/api/example) objects. By
+default, the two keys `train` and `dev` are specified and each refer to a
+[`Corpus`](/api/top-level#Corpus). When pretraining, an additional `pretrain`
+section is added that defaults to a [`JsonlCorpus`](/api/top-level#JsonlCorpus).
+You can also register custom functions that return a callable.
+
+| Name       | Description                                                                                                                                                                 |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `train`    | Training data corpus, typically used in `[training]` block. ~~Callable[[Language], Iterator[Example]]~~                                                                     |
+| `dev`      | Development data corpus, typically used in `[training]` block. ~~Callable[[Language], Iterator[Example]]~~                                                                  |
+| `pretrain` | Raw text for [pretraining](/usage/embeddings-transformers#pretraining), typically used in `[pretraining]` block (if available). ~~Callable[[Language], Iterator[Example]]~~ |
+| ...        | Any custom or alternative corpora. ~~Callable[[Language], Iterator[Example]]~~                                                                                              |
+
+Alternatively, the `[corpora]` block can refer to **one function** that returns
+a dictionary keyed by the corpus names. This can be useful if you want to load a
+single corpus once and then divide it up into `train` and `dev` partitions.
+
+> #### Example
+>
+> ```ini
+> [corpora]
+> @readers = "my_custom_reader.v1"
+> train_path = ${paths:train}
+> dev_path = ${paths:dev}
+> shuffle = true
+>
+> ```
+
+| Name      | Description                                                                                                                                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `corpora` | A dictionary keyed by string names, mapped to corpus functions that receive the current `nlp` object and return an iterator of [`Example`](/api/example) objects. ~~Dict[str, Callable[[Language], Iterator[Example]]]~~ |
+
 ### training {#config-training tag="section"}
 
 This section defines settings and controls for the training and evaluation
 process that are used when you run [`spacy train`](/api/cli#train).
 
-| Name                  | Description                                                                                                                                                                                                  |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `accumulate_gradient` | Whether to divide the batch up into substeps. Defaults to `1`. ~~int~~                                                                                                                                       |
-| `batcher`             | Callable that takes an iterator of [`Doc`](/api/doc) objects and yields batches of `Doc`s. Defaults to [`batch_by_words`](/api/top-level#batch_by_words). ~~Callable[[Iterator[Doc], Iterator[List[Doc]]]]~~ |
-| `dev_corpus`          | Callable that takes the current `nlp` object and yields [`Example`](/api/example) objects. Defaults to [`Corpus`](/api/corpus). ~~Callable[[Language], Iterator[Example]]~~                                  |
-| `dropout`             | The dropout rate. Defaults to `0.1`. ~~float~~                                                                                                                                                               |
-| `eval_frequency`      | How often to evaluate during training (steps). Defaults to `200`. ~~int~~                                                                                                                                    |
-| `frozen_components`   | Pipeline component names that are "frozen" and shouldn't be updated during training. See [here](/usage/training#config-components) for details. Defaults to `[]`. ~~List[str]~~                              |
-| `init_tok2vec`        | Optional path to pretrained tok2vec weights created with [`spacy pretrain`](/api/cli#pretrain). Defaults to variable `${paths.init_tok2vec}`. ~~Optional[str]~~                                              |
-| `max_epochs`          | Maximum number of epochs to train for. Defaults to `0`. ~~int~~                                                                                                                                              |
-| `max_steps`           | Maximum number of update steps to train for. Defaults to `20000`. ~~int~~                                                                                                                                    |
-| `optimizer`           | The optimizer. The learning rate schedule and other settings can be configured as part of the optimizer. Defaults to [`Adam`](https://thinc.ai/docs/api-optimizers#adam). ~~Optimizer~~                      |
-| `patience`            | How many steps to continue without improvement in evaluation score. Defaults to `1600`. ~~int~~                                                                                                              |
-| `raw_text`            | Optional path to a jsonl file with unlabelled text documents for a [rehearsal](/api/language#rehearse) step. Defaults to variable `${paths.raw}`. ~~Optional[str]~~                                          |
-| `score_weights`       | Score names shown in metrics mapped to their weight towards the final weighted score. See [here](/usage/training#metrics) for details. Defaults to `{}`. ~~Dict[str, float]~~                                |
-| `seed`                | The random seed. Defaults to variable `${system.seed}`. ~~int~~                                                                                                                                              |
-| `train_corpus`        | Callable that takes the current `nlp` object and yields [`Example`](/api/example) objects. Defaults to [`Corpus`](/api/corpus). ~~Callable[[Language], Iterator[Example]]~~                                  |
-| `vectors`             | Model name or path to model containing pretrained word vectors to use, e.g. created with [`init model`](/api/cli#init-model). Defaults to `null`. ~~Optional[str]~~                                          |
+| Name                  | Description                                                                                                                                                                                                                                                                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `accumulate_gradient` | Whether to divide the batch up into substeps. Defaults to `1`. ~~int~~                                                                                                                                                                                                                                                              |
+| `batcher`             | Callable that takes an iterator of [`Doc`](/api/doc) objects and yields batches of `Doc`s. Defaults to [`batch_by_words`](/api/top-level#batch_by_words). ~~Callable[[Iterator[Doc], Iterator[List[Doc]]]]~~                                                                                                                        |
+| `before_to_disk`      | Optional callback to modify `nlp` object right before it is saved to disk during and after training. Can be used to remove or reset config values or disable components. Defaults to `null`. ~~Optional[Callable[[Language], Language]]~~                                                                                           |
+| `dev_corpus`          | Dot notation of the config location defining the dev corpus. Defaults to `corpora.dev`. ~~str~~                                                                                                                                                                                                                                     |
+| `dropout`             | The dropout rate. Defaults to `0.1`. ~~float~~                                                                                                                                                                                                                                                                                      |
+| `eval_frequency`      | How often to evaluate during training (steps). Defaults to `200`. ~~int~~                                                                                                                                                                                                                                                           |
+| `frozen_components`   | Pipeline component names that are "frozen" and shouldn't be initialized or updated during training. See [here](/usage/training#config-components) for details. Defaults to `[]`. ~~List[str]~~                                                                                                                                      |
+| `gpu_allocator`       | Library for cupy to route GPU memory allocation to. Can be `"pytorch"` or `"tensorflow"`. Defaults to variable `${system.gpu_allocator}`. ~~str~~                                                                                                                                                                                   |
+| `logger`              | Callable that takes the `nlp` and stdout and stderr `IO` objects, sets up the logger, and returns two new callables to log a training step and to finalize the logger. Defaults to [`ConsoleLogger`](/api/top-level#ConsoleLogger). ~~Callable[[Language, IO, IO], [Tuple[Callable[[Dict[str, Any]], None], Callable[[], None]]]]~~ |
+| `max_epochs`          | Maximum number of epochs to train for. Defaults to `0`. ~~int~~                                                                                                                                                                                                                                                                     |
+| `max_steps`           | Maximum number of update steps to train for. Defaults to `20000`. ~~int~~                                                                                                                                                                                                                                                           |
+| `optimizer`           | The optimizer. The learning rate schedule and other settings can be configured as part of the optimizer. Defaults to [`Adam`](https://thinc.ai/docs/api-optimizers#adam). ~~Optimizer~~                                                                                                                                             |
+| `patience`            | How many steps to continue without improvement in evaluation score. Defaults to `1600`. ~~int~~                                                                                                                                                                                                                                     |
+| `score_weights`       | Score names shown in metrics mapped to their weight towards the final weighted score. See [here](/usage/training#metrics) for details. Defaults to `{}`. ~~Dict[str, float]~~                                                                                                                                                       |
+| `seed`                | The random seed. Defaults to variable `${system.seed}`. ~~int~~                                                                                                                                                                                                                                                                     |
+| `train_corpus`        | Dot notation of the config location defining the train corpus. Defaults to `corpora.train`. ~~str~~                                                                                                                                                                                                                                 |
 
 ### pretraining {#config-pretraining tag="section,optional"}
 
 This section is optional and defines settings and controls for
-[language model pretraining](/usage/training#pretraining). It's used when you
-run [`spacy pretrain`](/api/cli#pretrain).
+[language model pretraining](/usage/embeddings-transformers#pretraining). It's
+used when you run [`spacy pretrain`](/api/cli#pretrain).
 
-| Name                         | Description                                                                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `max_epochs`                 | Maximum number of epochs. Defaults to `1000`. ~~int~~                                                                           |
-| `min_length`                 | Minimum length of examples. Defaults to `5`. ~~int~~                                                                            |
-| `max_length`                 | Maximum length of examples. Defaults to `500`. ~~int~~                                                                          |
-| `dropout`                    | The dropout rate. Defaults to `0.2`. ~~float~~                                                                                  |
-| `n_save_every`               | Saving frequency. Defaults to `null`. ~~Optional[int]~~                                                                         |
-| `batch_size`                 | The batch size or batch size [schedule](https://thinc.ai/docs/api-schedules). Defaults to `3000`. ~~Union[int, Sequence[int]]~~ |
-| `seed`                       | The random seed. Defaults to variable `${system.seed}`. ~~int~~                                                                 |
-| `use_pytorch_for_gpu_memory` | Allocate memory via PyTorch. Defaults to variable `${system.use_pytorch_for_gpu_memory}`. ~~bool~~                              |
-| `tok2vec_model`              | The model section of the embedding component in the config. Defaults to `"components.tok2vec.model"`. ~~str~~                   |
-| `objective`                  | The pretraining objective. Defaults to `{"type": "characters", "n_characters": 4}`. ~~Dict[str, Any]~~                          |
-| `optimizer`                  | The optimizer. Defaults to [`Adam`](https://thinc.ai/docs/api-optimizers#adam). ~~Optimizer~~                                   |
+| Name           | Description                                                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `max_epochs`   | Maximum number of epochs. Defaults to `1000`. ~~int~~                                                                                                                                                        |
+| `dropout`      | The dropout rate. Defaults to `0.2`. ~~float~~                                                                                                                                                               |
+| `n_save_every` | Saving frequency. Defaults to `null`. ~~Optional[int]~~                                                                                                                                                      |
+| `objective`    | The pretraining objective. Defaults to `{"type": "characters", "n_characters": 4}`. ~~Dict[str, Any]~~                                                                                                       |
+| `optimizer`    | The optimizer. The learning rate schedule and other settings can be configured as part of the optimizer. Defaults to [`Adam`](https://thinc.ai/docs/api-optimizers#adam). ~~Optimizer~~                      |
+| `corpus`       | Dot notation of the config location defining the corpus with raw text. Defaults to `corpora.pretrain`. ~~str~~                                                                                               |
+| `batcher`      | Callable that takes an iterator of [`Doc`](/api/doc) objects and yields batches of `Doc`s. Defaults to [`batch_by_words`](/api/top-level#batch_by_words). ~~Callable[[Iterator[Doc], Iterator[List[Doc]]]]~~ |
+| `component`    | Component name to identify the layer with the model to pretrain. Defaults to `"tok2vec"`. ~~str~~                                                                                                            |
+| `layer`        | The specific layer of the model to pretrain. If empty, the whole model will be used. ~~str~~                                                                                                                 |
+
+### initialize {#config-initialize tag="section"}
+
+This config block lets you define resources for **initializing the pipeline**.
+It's used by [`Language.initialize`](/api/language#initialize) and typically
+called right before training (but not at runtime). The section allows you to
+specify local file paths or custom functions to load data resources from,
+without requiring them at runtime when you load the trained pipeline back in.
+Also see the usage guides on the
+[config lifecycle](/usage/training#config-lifecycle) and
+[custom initialization](/usage/training#initialization).
+
+> #### Example
+>
+> ```ini
+> [initialize]
+> vectors = "/path/to/vectors_nlp"
+> init_tok2vec = "/path/to/pretrain.bin"
+>
+> [initialize_components]
+>
+> [initialize.components.my_component]
+> data_path = "/path/to/component_data"
+> ```
+
+| Name           | Description                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components`   | Additional arguments passed to the `initialize` method of a pipeline component, keyed by component name. If type annotations are available on the method, the config will be validated against them. The `initialize` methods will always receive the `get_examples` callback and the current `nlp` object. ~~Dict[str, Dict[str, Any]]~~                                                                      |
+| `init_tok2vec` | Optional path to pretrained tok2vec weights created with [`spacy pretrain`](/api/cli#pretrain). Defaults to variable `${paths.init_tok2vec}`. ~~Optional[str]~~                                                                                                                                                                                                                                                |
+| `lookups`      | Additional lexeme and vocab data from [`spacy-lookups-data`](https://github.com/explosion/spacy-lookups-data). Defaults to `null`. ~~Optional[Lookups]~~                                                                                                                                                                                                                                                       |
+| `tokenizer`    | Additional arguments passed to the `initialize` method of the specified tokenizer. Can be used for languages like Chinese that depend on dictionaries or trained models for tokenization. If type annotations are available on the method, the config will be validated against them. The `initialize` method will always receive the `get_examples` callback and the current `nlp` object. ~~Dict[str, Any]~~ |
+| `vectors`      | Name or path of pipeline containing pretrained word vectors to use, e.g. created with [`init vectors`](/api/cli#init-vectors). Defaults to `null`. ~~Optional[str]~~                                                                                                                                                                                                                                           |
+| `vocab_data`   | Path to JSONL-formatted [vocabulary file](/api/data-formats#vocab-jsonl) to initialize vocabulary. ~~Optional[str]~~                                                                                                                                                                                                                                                                                           |
 
 ## Training data {#training}
 
@@ -174,7 +258,7 @@ run [`spacy pretrain`](/api/cli#pretrain).
 >
 > ```python
 > from spacy.tokens import DocBin
-> from spacy.gold import Corpus
+> from spacy.training import Corpus
 >
 > doc_bin = DocBin(docs=docs)
 > doc_bin.to_disk("./data.spacy")
@@ -183,7 +267,7 @@ run [`spacy pretrain`](/api/cli#pretrain).
 
 The main data format used in spaCy v3.0 is a **binary format** created by
 serializing a [`DocBin`](/api/docbin), which represents a collection of `Doc`
-objects. This means that you can train spaCy models using the same format it
+objects. This means that you can train spaCy pipelines using the same format it
 outputs: annotated `Doc` objects. The binary format is extremely **efficient in
 storage**, especially when packing multiple documents together.
 
@@ -191,8 +275,8 @@ Typically, the extension for these binary files is `.spacy`, and they are used
 as input format for specifying a [training corpus](/api/corpus) and for spaCy's
 CLI [`train`](/api/cli#train) command. The built-in
 [`convert`](/api/cli#convert) command helps you convert spaCy's previous
-[JSON format](#json-input) to the new binary format format. It also supports
-conversion of the `.conllu` format used by the
+[JSON format](#json-input) to the new binary format. It also supports conversion
+of the `.conllu` format used by the
 [Universal Dependencies corpora](https://github.com/UniversalDependencies).
 
 ### JSON training format {#json-input tag="deprecated"}
@@ -221,8 +305,8 @@ $ python -m spacy convert ./data.json ./output.spacy
 > entity label, prefixed by the BILUO marker. For example `"B-ORG"` describes
 > the first token of a multi-token `ORG` entity and `"U-PERSON"` a single token
 > representing a `PERSON` entity. The
-> [`biluo_tags_from_offsets`](/api/top-level#biluo_tags_from_offsets) function
-> can help you convert entity offsets to the right format.
+> [`offsets_to_biluo_tags`](/api/top-level#offsets_to_biluo_tags) function can
+> help you convert entity offsets to the right format.
 
 ```python
 ### Example structure
@@ -255,7 +339,7 @@ $ python -m spacy convert ./data.json ./output.spacy
 
 <Accordion title="Sample JSON data" spaced>
 
-Here's an example of dependencies, part-of-speech tags and names entities, taken
+Here's an example of dependencies, part-of-speech tags and named entities, taken
 from the English Wall Street Journal portion of the Penn Treebank:
 
 ```json
@@ -285,8 +369,8 @@ a dictionary of gold-standard annotations.
 [internal training API](/usage/training#api) and they're expected when you call
 [`nlp.update`](/api/language#update). However, for most use cases, you
 **shouldn't** have to write your own training scripts. It's recommended to train
-your models via the [`spacy train`](/api/cli#train) command with a config file
-to keep track of your settings and hyperparameters and your own
+your pipelines via the [`spacy train`](/api/cli#train) command with a config
+file to keep track of your settings and hyperparameters and your own
 [registered functions](/usage/training/#custom-code) to customize the setup.
 
 </Infobox>
@@ -369,50 +453,22 @@ gold_dict = {"links": {(0, 12): {"Q7381115": 1.0, "Q2146908": 0.0}}}
 example = Example.from_dict(doc, gold_dict)
 ```
 
-## Pretraining data {#pretraining}
-
-The [`spacy pretrain`](/api/cli#pretrain) command lets you pretrain the
-"token-to-vector" embedding layer of pipeline components from raw text. Raw text
-can be provided as a `.jsonl` (newline-delimited JSON) file containing one input
-text per line (roughly paragraph length is good). Optionally, custom
-tokenization can be provided.
-
-> #### Tip: Writing JSONL
->
-> Our utility library [`srsly`](https://github.com/explosion/srsly) provides a
-> handy `write_jsonl` helper that takes a file path and list of dictionaries and
-> writes out JSONL-formatted data.
->
-> ```python
-> import srsly
-> data = [{"text": "Some text"}, {"text": "More..."}]
-> srsly.write_jsonl("/path/to/text.jsonl", data)
-> ```
-
-| Key      | Description                                                           |
-| -------- | --------------------------------------------------------------------- |
-| `text`   | The raw input text. Is not required if `tokens` is available. ~~str~~ |
-| `tokens` | Optional tokenization, one string per token. ~~List[str]~~            |
-
-```json
-### Example
-{"text": "Can I ask where you work now and what you do, and if you enjoy it?"}
-{"text": "They may just pull out of the Seattle market completely, at least until they have autonomous vehicles."}
-{"text": "My cynical view on this is that it will never be free to the public. Reason: what would be the draw of joining the military? Right now their selling point is free Healthcare and Education. Ironically both are run horribly and most, that I've talked to, come out wishing they never went in."}
-{"tokens": ["If", "tokens", "are", "provided", "then", "we", "can", "skip", "the", "raw", "input", "text"]}
-```
-
 ## Lexical data for vocabulary {#vocab-jsonl new="2"}
 
-To populate a model's vocabulary, you can use the
-[`spacy init model`](/api/cli#init-model) command and load in a
-[newline-delimited JSON](http://jsonlines.org/) (JSONL) file containing one
-lexical entry per line via the `--jsonl-loc` option. The first line defines the
-language and vocabulary settings. All other lines are expected to be JSON
-objects describing an individual lexeme. The lexical attributes will be then set
-as attributes on spaCy's [`Lexeme`](/api/lexeme#attributes) object. The `vocab`
-command outputs a ready-to-use spaCy model with a `Vocab` containing the lexical
-data.
+This data file can be provided via the `vocab_data` setting in the
+`[initialize]` block of the training config to pre-define the lexical data to
+initialize the `nlp` object's vocabulary with. The file should contain one
+lexical entry per line. The first line defines the language and vocabulary
+settings. All other lines are expected to be JSON objects describing an
+individual lexeme. The lexical attributes will be then set as attributes on
+spaCy's [`Lexeme`](/api/lexeme#attributes) object.
+
+> #### Example config
+>
+> ```ini
+> [initialize]
+> vocab_data = "/path/to/vocab-data.jsonl"
+> ```
 
 ```python
 ### First line
@@ -454,14 +510,14 @@ data.
 Here's an example of the 20 most frequent lexemes in the English training data:
 
 ```json
-https://github.com/explosion/spaCy/tree/master/examples/training/vocab-data.jsonl
+%%GITHUB_SPACY/extra/example_data/vocab-data.jsonl
 ```
 
-## Model meta {#meta}
+## Pipeline meta {#meta}
 
-The model meta is available as the file `meta.json` and exported automatically
-when you save an `nlp` object to disk. Its contents are available as
-[`nlp.meta`](/api/language#meta).
+The pipeline meta is available as the file `meta.json` and exported
+automatically when you save an `nlp` object to disk. Its contents are available
+as [`nlp.meta`](/api/language#meta).
 
 <Infobox variant="warning" title="Changed in v3.0">
 
@@ -471,8 +527,8 @@ creating a Python package with [`spacy package`](/api/cli#package). How to set
 up the `nlp` object is now defined in the
 [`config.cfg`](/api/data-formats#config), which includes detailed information
 about the pipeline components and their model architectures, and all other
-settings and hyperparameters used to train the model. It's the **single source
-of truth** used for loading a model.
+settings and hyperparameters used to train the pipeline. It's the **single
+source of truth** used for loading a pipeline.
 
 </Infobox>
 
@@ -480,12 +536,12 @@ of truth** used for loading a model.
 >
 > ```json
 > {
->   "name": "example_model",
+>   "name": "example_pipeline",
 >   "lang": "en",
 >   "version": "1.0.0",
 >   "spacy_version": ">=3.0.0,<3.1.0",
 >   "parent_package": "spacy",
->   "description": "Example model for spaCy",
+>   "description": "Example pipeline for spaCy",
 >   "author": "You",
 >   "email": "you@example.com",
 >   "url": "https://example.com",
@@ -497,7 +553,7 @@ of truth** used for loading a model.
 >     "ner": ["PERSON", "ORG", "PRODUCT"],
 >     "textcat": ["POSITIVE", "NEGATIVE"]
 >   },
->   "accuracy": {
+>   "performance": {
 >     "ents_f": 82.7300930714,
 >     "ents_p": 82.135523614,
 >     "ents_r": 83.3333333333,
@@ -508,23 +564,23 @@ of truth** used for loading a model.
 > }
 > ```
 
-| Name                                           | Description                                                                                                                                                                                                                                                                                                              |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lang`                                         | Model language [ISO code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes). Defaults to `"en"`. ~~str~~                                                                                                                                                                                                            |
-| `name`                                         | Model name, e.g. `"core_web_sm"`. The final model package name will be `{lang}_{name}`. Defaults to `"model"`. ~~str~~                                                                                                                                                                                                   |
-| `version`                                      | Model version. Will be used to version a Python package created with [`spacy package`](/api/cli#package). Defaults to `"0.0.0"`. ~~str~~                                                                                                                                                                                 |
-| `spacy_version`                                | spaCy version range the model is compatible with. Defaults to the spaCy version used to create the model, up to next minor version, which is the default compatibility for the available [pretrained models](/models). For instance, a model trained with v3.0.0 will have the version range `">=3.0.0,<3.1.0"`. ~~str~~ |
-| `parent_package`                               | Name of the spaCy package. Typically `"spacy"` or `"spacy_nightly"`. Defaults to `"spacy"`. ~~str~~                                                                                                                                                                                                                      |
-| `description`                                  | Model description. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                               |
-| `author`                                       | Model author name. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                               |
-| `email`                                        | Model author email. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                              |
-| `url`                                          | Model author URL. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                                |
-| `license`                                      | Model license. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                                   |
-| `sources`                                      | Data sources used to train the model. Typically a list of dicts with the keys `"name"`, `"url"`, `"author"` and `"license"`. [See here](https://github.com/explosion/spacy-models/tree/master/meta) for examples. Defaults to `None`. ~~Optional[List[Dict[str, str]]]~~                                                 |
-| `vectors`                                      | Information about the word vectors included with the model. Typically a dict with the keys `"width"`, `"vectors"` (number of vectors), `"keys"` and `"name"`. ~~Dict[str, Any]~~                                                                                                                                         |
-| `pipeline`                                     | Names of pipeline component names in the model, in order. Corresponds to [`nlp.pipe_names`](/api/language#pipe_names). Only exists for reference and is not used to create the components. This information is defined in the [`config.cfg`](/api/data-formats#config). Defaults to `[]`. ~~List[str]~~                  |
-| `labels`                                       | Label schemes of the trained pipeline components, keyed by component name. Corresponds to [`nlp.pipe_labels`](/api/language#pipe_labels). [See here](https://github.com/explosion/spacy-models/tree/master/meta) for examples. Defaults to `{}`. ~~Dict[str, Dict[str, List[str]]]~~                                     |
-| `accuracy`                                     | Training accuracy, added automatically by [`spacy train`](/api/cli#train). Dictionary of [score names](/usage/training#metrics) mapped to scores. Defaults to `{}`. ~~Dict[str, Union[float, Dict[str, float]]]~~                                                                                                        |
-| `speed`                                        | Model speed, added automatically by [`spacy train`](/api/cli#train). Typically a dictionary with the keys `"cpu"`, `"gpu"` and `"nwords"` (words per second). Defaults to `{}`. ~~Dict[str, Optional[Union[float, str]]]~~                                                                                               |
-| `spacy_git_version` <Tag variant="new">3</Tag> | Git commit of [`spacy`](https://github.com/explosion/spaCy) used to create model. ~~str~~                                                                                                                                                                                                                                |
-| other                                          | Any other custom meta information you want to add. The data is preserved in [`nlp.meta`](/api/language#meta). ~~Any~~                                                                                                                                                                                                    |
+| Name                                           | Description                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lang`                                         | Pipeline language [ISO code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes). Defaults to `"en"`. ~~str~~                                                                                                                                                                                                                 |
+| `name`                                         | Pipeline name, e.g. `"core_web_sm"`. The final package name will be `{lang}_{name}`. Defaults to `"pipeline"`. ~~str~~                                                                                                                                                                                                           |
+| `version`                                      | Pipeline version. Will be used to version a Python package created with [`spacy package`](/api/cli#package). Defaults to `"0.0.0"`. ~~str~~                                                                                                                                                                                      |
+| `spacy_version`                                | spaCy version range the package is compatible with. Defaults to the spaCy version used to create the pipeline, up to next minor version, which is the default compatibility for the available [trained pipelines](/models). For instance, a pipeline trained with v3.0.0 will have the version range `">=3.0.0,<3.1.0"`. ~~str~~ |
+| `parent_package`                               | Name of the spaCy package. Typically `"spacy"` or `"spacy_nightly"`. Defaults to `"spacy"`. ~~str~~                                                                                                                                                                                                                              |
+| `description`                                  | Pipeline description. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                                    |
+| `author`                                       | Pipeline author name. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                                    |
+| `email`                                        | Pipeline author email. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                                   |
+| `url`                                          | Pipeline author URL. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                                     |
+| `license`                                      | Pipeline license. Also used for Python package. Defaults to `""`. ~~str~~                                                                                                                                                                                                                                                        |
+| `sources`                                      | Data sources used to train the pipeline. Typically a list of dicts with the keys `"name"`, `"url"`, `"author"` and `"license"`. [See here](https://github.com/explosion/spacy-models/tree/master/meta) for examples. Defaults to `None`. ~~Optional[List[Dict[str, str]]]~~                                                      |
+| `vectors`                                      | Information about the word vectors included with the pipeline. Typically a dict with the keys `"width"`, `"vectors"` (number of vectors), `"keys"` and `"name"`. ~~Dict[str, Any]~~                                                                                                                                              |
+| `pipeline`                                     | Names of pipeline component names, in order. Corresponds to [`nlp.pipe_names`](/api/language#pipe_names). Only exists for reference and is not used to create the components. This information is defined in the [`config.cfg`](/api/data-formats#config). Defaults to `[]`. ~~List[str]~~                                       |
+| `labels`                                       | Label schemes of the trained pipeline components, keyed by component name. Corresponds to [`nlp.pipe_labels`](/api/language#pipe_labels). [See here](https://github.com/explosion/spacy-models/tree/master/meta) for examples. Defaults to `{}`. ~~Dict[str, Dict[str, List[str]]]~~                                             |
+| `accuracy`                                     | Training accuracy, added automatically by [`spacy train`](/api/cli#train). Dictionary of [score names](/usage/training#metrics) mapped to scores. Defaults to `{}`. ~~Dict[str, Union[float, Dict[str, float]]]~~                                                                                                                |
+| `speed`                                        | Inference speed, added automatically by [`spacy train`](/api/cli#train). Typically a dictionary with the keys `"cpu"`, `"gpu"` and `"nwords"` (words per second). Defaults to `{}`. ~~Dict[str, Optional[Union[float, str]]]~~                                                                                                   |
+| `spacy_git_version` <Tag variant="new">3</Tag> | Git commit of [`spacy`](https://github.com/explosion/spaCy) used to create pipeline. ~~str~~                                                                                                                                                                                                                                     |
+| other                                          | Any other custom meta information you want to add. The data is preserved in [`nlp.meta`](/api/language#meta). ~~Any~~                                                                                                                                                                                                            |

@@ -45,6 +45,11 @@ def ca_tokenizer():
 
 
 @pytest.fixture(scope="session")
+def cs_tokenizer():
+    return get_lang_class("cs")().tokenizer
+
+
+@pytest.fixture(scope="session")
 def da_tokenizer():
     return get_lang_class("da")().tokenizer
 
@@ -52,6 +57,11 @@ def da_tokenizer():
 @pytest.fixture(scope="session")
 def de_tokenizer():
     return get_lang_class("de")().tokenizer
+
+
+@pytest.fixture(scope="session")
+def de_vocab():
+    return get_lang_class("de")().vocab
 
 
 @pytest.fixture(scope="session")
@@ -113,6 +123,11 @@ def gu_tokenizer():
 @pytest.fixture(scope="session")
 def he_tokenizer():
     return get_lang_class("he")().tokenizer
+
+
+@pytest.fixture(scope="session")
+def hi_tokenizer():
+    return get_lang_class("hi")().tokenizer
 
 
 @pytest.fixture(scope="session")
@@ -205,6 +220,11 @@ def ru_lemmatizer():
 
 
 @pytest.fixture(scope="session")
+def sa_tokenizer():
+    return get_lang_class("sa")().tokenizer
+
+
+@pytest.fixture(scope="session")
 def sr_tokenizer():
     return get_lang_class("sr")().tokenizer
 
@@ -233,7 +253,6 @@ def tt_tokenizer():
 @pytest.fixture(scope="session")
 def uk_tokenizer():
     pytest.importorskip("pymorphy2")
-    pytest.importorskip("pymorphy2.lang")
     return get_lang_class("uk")().tokenizer
 
 
@@ -257,22 +276,31 @@ def zh_tokenizer_char():
 def zh_tokenizer_jieba():
     pytest.importorskip("jieba")
     config = {
-        "@tokenizers": "spacy.zh.ChineseTokenizer",
-        "segmenter": "jieba",
+        "nlp": {
+            "tokenizer": {
+                "@tokenizers": "spacy.zh.ChineseTokenizer",
+                "segmenter": "jieba",
+            }
+        }
     }
-    nlp = get_lang_class("zh").from_config({"nlp": {"tokenizer": config}})
+    nlp = get_lang_class("zh").from_config(config)
     return nlp.tokenizer
 
 
 @pytest.fixture(scope="session")
 def zh_tokenizer_pkuseg():
-    pytest.importorskip("pkuseg")
+    pytest.importorskip("spacy_pkuseg")
     config = {
-        "@tokenizers": "spacy.zh.ChineseTokenizer",
-        "segmenter": "pkuseg",
-        "pkuseg_model": "default",
+        "nlp": {
+            "tokenizer": {
+                "@tokenizers": "spacy.zh.ChineseTokenizer",
+                "segmenter": "pkuseg",
+            }
+        },
+        "initialize": {"tokenizer": {"pkuseg_model": "web"}},
     }
-    nlp = get_lang_class("zh").from_config({"nlp": {"tokenizer": config}})
+    nlp = get_lang_class("zh").from_config(config)
+    nlp.initialize()
     return nlp.tokenizer
 
 

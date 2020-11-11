@@ -1,8 +1,9 @@
-from typing import Iterator, Sequence, Iterable, Optional, Dict, Callable, List, Tuple
+from typing import Iterator, Sequence, Iterable, Optional, Dict, Callable, List
 from thinc.api import Model, set_dropout_rate, Optimizer, Config
+from itertools import islice
 
-from .pipe import Pipe
-from ..gold import Example, validate_examples
+from .trainable_pipe import TrainablePipe
+from ..training import Example, validate_examples, validate_get_examples
 from ..tokens import Doc
 from ..vocab import Vocab
 from ..language import Language
@@ -31,7 +32,7 @@ def make_tok2vec(nlp: Language, name: str, model: Model) -> "Tok2Vec":
     return Tok2Vec(nlp.vocab, model, name)
 
 
-class Tok2Vec(Pipe):
+class Tok2Vec(TrainablePipe):
     """Apply a "token-to-vector" model and set its outputs in the doc.tensor
     attribute. This is mostly useful to share a single subnetwork between multiple
     components, e.g. to have one embedding and CNN network shared between a
@@ -56,7 +57,7 @@ class Tok2Vec(Pipe):
             a list of Doc objects as input, and output a list of 2d float arrays.
         name (str): The component instance name.
 
-        DOCS: https://spacy.io/api/tok2vec#init
+        DOCS: https://nightly.spacy.io/api/tok2vec#init
         """
         self.vocab = vocab
         self.model = model
@@ -88,10 +89,10 @@ class Tok2Vec(Pipe):
         """Add context-sensitive embeddings to the Doc.tensor attribute, allowing
         them to be used as features by downstream components.
 
-        docs (Doc): The Doc to preocess.
+        docs (Doc): The Doc to process.
         RETURNS (Doc): The processed Doc.
 
-        DOCS: https://spacy.io/api/tok2vec#call
+        DOCS: https://nightly.spacy.io/api/tok2vec#call
         """
         tokvecses = self.predict([doc])
         self.set_annotations([doc], tokvecses)
@@ -106,7 +107,7 @@ class Tok2Vec(Pipe):
         batch_size (int): The number of documents to buffer.
         YIELDS (Doc): Processed documents in order.
 
-        DOCS: https://spacy.io/api/tok2vec#pipe
+        DOCS: https://nightly.spacy.io/api/tok2vec#pipe
         """
         for docs in minibatch(stream, batch_size):
             docs = list(docs)
@@ -121,12 +122,12 @@ class Tok2Vec(Pipe):
         docs (Iterable[Doc]): The documents to predict.
         RETURNS: Vector representations for each token in the documents.
 
-        DOCS: https://spacy.io/api/tok2vec#predict
+        DOCS: https://nightly.spacy.io/api/tok2vec#predict
         """
         tokvecs = self.model.predict(docs)
         batch_id = Tok2VecListener.get_batch_id(docs)
         for listener in self.listeners:
-            listener.receive(batch_id, tokvecs, None)
+            listener.receive(batch_id, tokvecs, lambda dX: [])
         return tokvecs
 
     def set_annotations(self, docs: Sequence[Doc], tokvecses) -> None:
@@ -135,7 +136,7 @@ class Tok2Vec(Pipe):
         docs (Iterable[Doc]): The documents to modify.
         tokvecses: The tensors to set, produced by Tok2Vec.predict.
 
-        DOCS: https://spacy.io/api/tok2vec#set_annotations
+        DOCS: https://nightly.spacy.io/api/tok2vec#set_annotations
         """
         for doc, tokvecs in zip(docs, tokvecses):
             assert tokvecs.shape[0] == len(doc)
@@ -162,7 +163,7 @@ class Tok2Vec(Pipe):
             Updated using the component name as the key.
         RETURNS (Dict[str, float]): The updated losses dictionary.
 
-        DOCS: https://spacy.io/api/tok2vec#update
+        DOCS: https://nightly.spacy.io/api/tok2vec#update
         """
         if losses is None:
             losses = {}
@@ -187,7 +188,7 @@ class Tok2Vec(Pipe):
             accumulate_gradient(one_d_tokvecs)
             d_docs = bp_tokvecs(d_tokvecs)
             if sgd is not None:
-                self.model.finish_update(sgd)
+                self.finish_update(sgd)
             return d_docs
 
         batch_id = Tok2VecListener.get_batch_id(docs)
@@ -202,28 +203,27 @@ class Tok2Vec(Pipe):
     def get_loss(self, examples, scores) -> None:
         pass
 
-    def begin_training(
+    def initialize(
         self,
         get_examples: Callable[[], Iterable[Example]],
         *,
-        pipeline: Optional[List[Tuple[str, Callable[[Doc], Doc]]]] = None,
-        sgd: Optional[Optimizer] = None,
+        nlp: Optional[Language] = None,
     ):
-        """Initialize the pipe for training, using data examples if available.
+        """Initialize the pipe for training, using a representative set
+        of data examples.
 
-        get_examples (Callable[[], Iterable[Example]]): Optional function that
-            returns gold-standard Example objects.
-        pipeline (List[Tuple[str, Callable]]): Optional list of pipeline
-            components that this component is part of. Corresponds to
-            nlp.pipeline.
-        sgd (thinc.api.Optimizer): Optional optimizer. Will be created with
-            create_optimizer if it doesn't exist.
-        RETURNS (thinc.api.Optimizer): The optimizer.
+        get_examples (Callable[[], Iterable[Example]]): Function that
+            returns a representative sample of gold-standard Example objects.
+        nlp (Language): The current nlp object the component is part of.
 
-        DOCS: https://spacy.io/api/tok2vec#begin_training
+        DOCS: https://nightly.spacy.io/api/tok2vec#initialize
         """
-        docs = [Doc(self.vocab, words=["hello"])]
-        self.model.initialize(X=docs)
+        validate_get_examples(get_examples, "Tok2Vec.initialize")
+        doc_sample = []
+        for example in islice(get_examples(), 10):
+            doc_sample.append(example.x)
+        assert doc_sample, Errors.E923.format(name=self.name)
+        self.model.initialize(X=doc_sample)
 
     def add_label(self, label):
         raise NotImplementedError
@@ -295,4 +295,19 @@ def forward(model: Tok2VecListener, inputs, is_train: bool):
         model.verify_inputs(inputs)
         return model._outputs, model._backprop
     else:
-        return [doc.tensor for doc in inputs], lambda dX: []
+        # This is pretty grim, but it's hard to do better :(.
+        # It's hard to avoid relying on the doc.tensor attribute, because the
+        # pipeline components can batch the data differently during prediction.
+        # That doesn't happen in update, where the nlp object works on batches
+        # of data.
+        # When the components batch differently, we don't receive a matching
+        # prediction from the upstream, so we can't predict.
+        if not all(doc.tensor.size for doc in inputs):
+            # But we do need to do *something* if the tensor hasn't been set.
+            # The compromise is to at least return data of the right shape,
+            # so the output is valid.
+            width = model.get_dim("nO")
+            outputs = [model.ops.alloc2f(len(doc), width) for doc in inputs]
+        else:
+            outputs = [doc.tensor for doc in inputs]
+        return outputs, lambda dX: []

@@ -3,6 +3,8 @@ title: Linguistic Features
 next: /usage/rule-based-matching
 menu:
   - ['POS Tagging', 'pos-tagging']
+  - ['Morphology', 'morphology']
+  - ['Lemmatization', 'lemmatization']
   - ['Dependency Parse', 'dependency-parse']
   - ['Named Entities', 'named-entities']
   - ['Entity Linking', 'entity-linking']
@@ -10,7 +12,8 @@ menu:
   - ['Merging & Splitting', 'retokenization']
   - ['Sentence Segmentation', 'sbd']
   - ['Vectors & Similarity', 'vectors-similarity']
-  - ['Language data', 'language-data']
+  - ['Mappings & Exceptions', 'mappings-exceptions']
+  - ['Language Data', 'language-data']
 ---
 
 Processing raw text intelligently is difficult: most words are rare, and it's
@@ -37,50 +40,180 @@ in the [models directory](/models).
 
 </Infobox>
 
-### Rule-based morphology {#rule-based-morphology}
+## Morphology {#morphology}
 
 Inflectional morphology is the process by which a root form of a word is
 modified by adding prefixes or suffixes that specify its grammatical function
-but do not changes its part-of-speech. We say that a **lemma** (root form) is
+but do not change its part-of-speech. We say that a **lemma** (root form) is
 **inflected** (modified/combined) with one or more **morphological features** to
 create a surface form. Here are some examples:
 
-| Context                                  | Surface | Lemma | POS  |  Morphological Features                  |
-| ---------------------------------------- | ------- | ----- | ---- | ---------------------------------------- |
-| I was reading the paper                  | reading | read  | verb | `VerbForm=Ger`                           |
-| I don't watch the news, I read the paper | read    | read  | verb | `VerbForm=Fin`, `Mood=Ind`, `Tense=Pres` |
-| I read the paper yesterday               | read    | read  | verb | `VerbForm=Fin`, `Mood=Ind`, `Tense=Past` |
+| Context                                  | Surface | Lemma | POS    |  Morphological Features                  |
+| ---------------------------------------- | ------- | ----- | ------ | ---------------------------------------- |
+| I was reading the paper                  | reading | read  | `VERB` | `VerbForm=Ger`                           |
+| I don't watch the news, I read the paper | read    | read  | `VERB` | `VerbForm=Fin`, `Mood=Ind`, `Tense=Pres` |
+| I read the paper yesterday               | read    | read  | `VERB` | `VerbForm=Fin`, `Mood=Ind`, `Tense=Past` |
 
-English has a relatively simple morphological system, which spaCy handles using
-rules that can be keyed by the token, the part-of-speech tag, or the combination
-of the two. The system works as follows:
+Morphological features are stored in the
+[`MorphAnalysis`](/api/morphology#morphanalysis) under `Token.morph`, which
+allows you to access individual morphological features.
 
-1. The tokenizer consults a
-   [mapping table](/usage/adding-languages#tokenizer-exceptions)
-   `TOKENIZER_EXCEPTIONS`, which allows sequences of characters to be mapped to
-   multiple tokens. Each token may be assigned a part of speech and one or more
-   morphological features.
-2. The part-of-speech tagger then assigns each token an **extended POS tag**. In
-   the API, these tags are known as `Token.tag`. They express the part-of-speech
-   (e.g. `VERB`) and some amount of morphological information, e.g. that the
-   verb is past tense.
-3. For words whose POS is not set by a prior process, a
-   [mapping table](/usage/adding-languages#tag-map) `TAG_MAP` maps the tags to a
-   part-of-speech and a set of morphological features.
-4. Finally, a **rule-based deterministic lemmatizer** maps the surface form, to
-   a lemma in light of the previously assigned extended part-of-speech and
-   morphological information, without consulting the context of the token. The
-   lemmatizer also accepts list-based exception files, acquired from
-   [WordNet](https://wordnet.princeton.edu/).
+> #### 📝 Things to try
+>
+> 1. Change "I" to "She". You should see that the morphological features change
+>    and express that it's a pronoun in the third person.
+> 2. Inspect `token.morph` for the other tokens.
+
+```python
+### {executable="true"}
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+print("Pipeline:", nlp.pipe_names)
+doc = nlp("I was reading the paper.")
+token = doc[0]  # 'I'
+print(token.morph)  # 'Case=Nom|Number=Sing|Person=1|PronType=Prs'
+print(token.morph.get("PronType"))  # ['Prs']
+```
+
+### Statistical morphology {#morphologizer new="3" model="morphologizer"}
+
+spaCy's statistical [`Morphologizer`](/api/morphologizer) component assigns the
+morphological features and coarse-grained part-of-speech tags as `Token.morph`
+and `Token.pos`.
+
+```python
+### {executable="true"}
+import spacy
+
+nlp = spacy.load("de_core_news_sm")
+doc = nlp("Wo bist du?") # English: 'Where are you?'
+print(doc[2].morph)  # 'Case=Nom|Number=Sing|Person=2|PronType=Prs'
+print(doc[2].pos_) # 'PRON'
+```
+
+### Rule-based morphology {#rule-based-morphology}
+
+For languages with relatively simple morphological systems like English, spaCy
+can assign morphological features through a rule-based approach, which uses the
+**token text** and **fine-grained part-of-speech tags** to produce
+coarse-grained part-of-speech tags and morphological features.
+
+1. The part-of-speech tagger assigns each token a **fine-grained part-of-speech
+   tag**. In the API, these tags are known as `Token.tag`. They express the
+   part-of-speech (e.g. verb) and some amount of morphological information, e.g.
+   that the verb is past tense (e.g. `VBD` for a past tense verb in the Penn
+   Treebank) .
+2. For words whose coarse-grained POS is not set by a prior process, a
+   [mapping table](#mapping-exceptions) maps the fine-grained tags to a
+   coarse-grained POS tags and morphological features.
+
+```python
+### {executable="true"}
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+doc = nlp("Where are you?")
+print(doc[2].morph)  # 'Case=Nom|Person=2|PronType=Prs'
+print(doc[2].pos_)  # 'PRON'
+```
+
+## Lemmatization {#lemmatization model="lemmatizer" new="3"}
+
+The [`Lemmatizer`](/api/lemmatizer) is a pipeline component that provides lookup
+and rule-based lemmatization methods in a configurable component. An individual
+language can extend the `Lemmatizer` as part of its
+[language data](#language-data).
+
+```python
+### {executable="true"}
+import spacy
+
+# English pipelines include a rule-based lemmatizer
+nlp = spacy.load("en_core_web_sm")
+lemmatizer = nlp.get_pipe("lemmatizer")
+print(lemmatizer.mode)  # 'rule'
+
+doc = nlp("I was reading the paper.")
+print([token.lemma_ for token in doc])
+# ['I', 'be', 'read', 'the', 'paper', '.']
+```
+
+<Infobox title="Changed in v3.0" variant="warning">
+
+Unlike spaCy v2, spaCy v3 models do _not_ provide lemmas by default or switch
+automatically between lookup and rule-based lemmas depending on whether a tagger
+is in the pipeline. To have lemmas in a `Doc`, the pipeline needs to include a
+[`Lemmatizer`](/api/lemmatizer) component. The lemmatizer component is
+configured to use a single mode such as `"lookup"` or `"rule"` on
+initialization. The `"rule"` mode requires `Token.pos` to be set by a previous
+component.
+
+</Infobox>
+
+The data for spaCy's lemmatizers is distributed in the package
+[`spacy-lookups-data`](https://github.com/explosion/spacy-lookups-data). The
+provided trained pipelines already include all the required tables, but if you
+are creating new pipelines, you'll probably want to install `spacy-lookups-data`
+to provide the data when the lemmatizer is initialized.
+
+### Lookup lemmatizer {#lemmatizer-lookup}
+
+For pipelines without a tagger or morphologizer, a lookup lemmatizer can be
+added to the pipeline as long as a lookup table is provided, typically through
+[`spacy-lookups-data`](https://github.com/explosion/spacy-lookups-data). The
+lookup lemmatizer looks up the token surface form in the lookup table without
+reference to the token's part-of-speech or context.
+
+```python
+# pip install -U %%SPACY_PKG_NAME[lookups]%%SPACY_PKG_FLAGS
+import spacy
+
+nlp = spacy.blank("sv")
+nlp.add_pipe("lemmatizer", config={"mode": "lookup"})
+```
+
+### Rule-based lemmatizer {#lemmatizer-rule}
+
+When training pipelines that include a component that assigns part-of-speech
+tags (a morphologizer or a tagger with a [POS mapping](#mappings-exceptions)), a
+rule-based lemmatizer can be added using rule tables from
+[`spacy-lookups-data`](https://github.com/explosion/spacy-lookups-data):
+
+```python
+# pip install -U %%SPACY_PKG_NAME[lookups]%%SPACY_PKG_FLAGS
+import spacy
+
+nlp = spacy.blank("de")
+# Morphologizer (note: model is not yet trained!)
+nlp.add_pipe("morphologizer")
+# Rule-based lemmatizer
+nlp.add_pipe("lemmatizer", config={"mode": "rule"})
+```
+
+The rule-based deterministic lemmatizer maps the surface form to a lemma in
+light of the previously assigned coarse-grained part-of-speech and morphological
+information, without consulting the context of the token. The rule-based
+lemmatizer also accepts list-based exception files. For English, these are
+acquired from [WordNet](https://wordnet.princeton.edu/).
 
 ## Dependency Parsing {#dependency-parse model="parser"}
 
 spaCy features a fast and accurate syntactic dependency parser, and has a rich
 API for navigating the tree. The parser also powers the sentence boundary
 detection, and lets you iterate over base noun phrases, or "chunks". You can
-check whether a [`Doc`](/api/doc) object has been parsed with the
-`doc.is_parsed` attribute, which returns a boolean value. If this attribute is
-`False`, the default sentence iterator will raise an exception.
+check whether a [`Doc`](/api/doc) object has been parsed by calling
+`doc.has_annotation("DEP")`, which checks whether the attribute `Token.dep` has
+been set returns a boolean value. If the result is `False`, the default sentence
+iterator will raise an exception.
+
+<Infobox title="Dependency label scheme" emoji="📖">
+
+For a list of the syntactic dependency labels assigned by spaCy's models across
+different languages, see the label schemes documented in the
+[models directory](/models).
+
+</Infobox>
 
 ### Noun chunks {#noun-chunks}
 
@@ -155,7 +288,7 @@ import DisplaCyLong2Html from 'images/displacy-long2.html'
 Because the syntactic relations form a tree, every word has **exactly one
 head**. You can therefore iterate over the arcs in the tree by iterating over
 the words in the sentence. This is usually the best way to match an arc of
-interest — from below:
+interest – from below:
 
 ```python
 ### {executable="true"}
@@ -231,10 +364,10 @@ sequence of tokens. You can walk up the tree with the
 
 > #### Projective vs. non-projective
 >
-> For the [default English model](/models/en), the parse tree is **projective**,
-> which means that there are no crossing brackets. The tokens returned by
-> `.subtree` are therefore guaranteed to be contiguous. This is not true for the
-> German model, which has many
+> For the [default English pipelines](/models/en), the parse tree is
+> **projective**, which means that there are no crossing brackets. The tokens
+> returned by `.subtree` are therefore guaranteed to be contiguous. This is not
+> true for the German pipelines, which have many
 > [non-projective dependencies](https://explosion.ai/blog/german-model#word-order).
 
 ```python
@@ -264,7 +397,7 @@ for descendant in subject.subtree:
 Finally, the `.left_edge` and `.right_edge` attributes can be especially useful,
 because they give you the first and last token of the subtree. This is the
 easiest way to create a `Span` object for a syntactic phrase. Note that
-`.right_edge` gives a token **within** the subtree — so if you use it as the
+`.right_edge` gives a token **within** the subtree – so if you use it as the
 end-point of a range, don't forget to `+1`!
 
 ```python
@@ -288,11 +421,45 @@ for token in doc:
 | their                               | `ADJ`  | `poss`  | requests  |
 | requests                            | `NOUN` | `dobj`  | submit    |
 
-<Infobox title="Dependency label scheme" emoji="📖">
+The dependency parse can be a useful tool for **information extraction**,
+especially when combined with other predictions like
+[named entities](#named-entities). The following example extracts money and
+currency values, i.e. entities labeled as `MONEY`, and then uses the dependency
+parse to find the noun phrase they are referring to – for example `"Net income"`
+&rarr; `"$9.4 million"`.
 
-For a list of the syntactic dependency labels assigned by spaCy's models across
-different languages, see the label schemes documented in the
-[models directory](/models).
+```python
+### {executable="true"}
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+# Merge noun phrases and entities for easier analysis
+nlp.add_pipe("merge_entities")
+nlp.add_pipe("merge_noun_chunks")
+
+TEXTS = [
+    "Net income was $9.4 million compared to the prior year of $2.7 million.",
+    "Revenue exceeded twelve billion dollars, with a loss of $1b.",
+]
+for doc in nlp.pipe(TEXTS):
+    for token in doc:
+        if token.ent_type_ == "MONEY":
+            # We have an attribute and direct object, so check for subject
+            if token.dep_ in ("attr", "dobj"):
+                subj = [w for w in token.head.lefts if w.dep_ == "nsubj"]
+                if subj:
+                    print(subj[0], "-->", token)
+            # We have a prepositional object with a preposition
+            elif token.dep_ == "pobj" and token.head.dep_ == "prep":
+                print(token.head.head, "-->", token)
+```
+
+<Infobox title="Combining models and rules" emoji="📖">
+
+For more examples of how to write rule-based information extraction logic that
+takes advantage of the model's predictions produced by the different components,
+see the usage guide on
+[combining models and rules](/usage/rule-based-matching#models-rules).
 
 </Infobox>
 
@@ -328,26 +495,27 @@ displaCy in our [online demo](https://explosion.ai/demos/displacy)..
 
 ### Disabling the parser {#disabling}
 
-In the [default models](/models), the parser is loaded and enabled as part of
-the [standard processing pipeline](/usage/processing-pipelines). If you don't
-need any of the syntactic information, you should disable the parser. Disabling
-the parser will make spaCy load and run much faster. If you want to load the
-parser, but need to disable it for specific documents, you can also control its
-use on the `nlp` object.
+In the [trained pipelines](/models) provided by spaCy, the parser is loaded and
+enabled by default as part of the
+[standard processing pipeline](/usage/processing-pipelines). If you don't need
+any of the syntactic information, you should disable the parser. Disabling the
+parser will make spaCy load and run much faster. If you want to load the parser,
+but need to disable it for specific documents, you can also control its use on
+the `nlp` object. For more details, see the usage guide on
+[disabling pipeline components](/usage/processing-pipelines/#disabling).
 
 ```python
 nlp = spacy.load("en_core_web_sm", disable=["parser"])
-nlp = English().from_disk("/model", disable=["parser"])
-doc = nlp("I don't want parsed", disable=["parser"])
 ```
 
 ## Named Entity Recognition {#named-entities}
 
 spaCy features an extremely fast statistical entity recognition system, that
-assigns labels to contiguous spans of tokens. The default model identifies a
-variety of named and numeric entities, including companies, locations,
-organizations and products. You can add arbitrary classes to the entity
-recognition system, and update the model with new examples.
+assigns labels to contiguous spans of tokens. The default
+[trained pipelines](/models) can indentify a variety of named and numeric
+entities, including companies, locations, organizations and products. You can
+add arbitrary classes to the entity recognition system, and update the model
+with new examples.
 
 ### Named Entity Recognition 101 {#named-entities-101}
 
@@ -378,7 +546,7 @@ on a token, it will return an empty string.
 >
 > #### BILUO Scheme
 >
-> - `B` – Token is the **beginning** of an entity.
+> - `B` – Token is the **beginning** of a multi-token entity.
 > - `I` – Token is **inside** a multi-token entity.
 > - `L` – Token is the **last** token of a multi-token entity.
 > - `U` – Token is a single-token **unit** entity.
@@ -471,7 +639,7 @@ print("After", doc.ents)  # [London]
 
 #### Setting entity annotations in Cython {#setting-cython}
 
-Finally, you can always write to the underlying struct, if you compile a
+Finally, you can always write to the underlying struct if you compile a
 [Cython](http://cython.org/) function. This is easy to do, and allows you to
 write efficient native code.
 
@@ -500,7 +668,7 @@ responsibility for ensuring that the data is left in a consistent state.
 
 <Infobox title="Annotation scheme">
 
-For details on the entity types available in spaCy's pretrained models, see the
+For details on the entity types available in spaCy's trained pipelines, see the
 "label scheme" sections of the individual models in the
 [models directory](/models).
 
@@ -541,11 +709,10 @@ import DisplacyEntHtml from 'images/displacy-ent2.html'
 To ground the named entities into the "real world", spaCy provides functionality
 to perform entity linking, which resolves a textual entity to a unique
 identifier from a knowledge base (KB). You can create your own
-[`KnowledgeBase`](/api/kb) and
-[train a new Entity Linking model](/usage/training#entity-linker) using that
-custom-made KB.
+[`KnowledgeBase`](/api/kb) and [train](/usage/training) a new
+[`EntityLinker`](/api/entitylinker) using that custom knowledge base.
 
-### Accessing entity identifiers {#entity-linking-accessing}
+### Accessing entity identifiers {#entity-linking-accessing model="entity linking"}
 
 The annotated KB identifier is accessible as either a hash value or as a string,
 using the attributes `ent.kb_id` and `ent.kb_id_` of a [`Span`](/api/span)
@@ -555,7 +722,7 @@ object, or the `ent_kb_id` and `ent_kb_id_` attributes of a
 ```python
 import spacy
 
-nlp = spacy.load("my_custom_el_model")
+nlp = spacy.load("my_custom_el_pipeline")
 doc = nlp("Ada Lovelace was born in London")
 
 # Document level
@@ -570,15 +737,6 @@ print(ent_ada_0)  # ['Ada', 'PERSON', 'Q7259']
 print(ent_ada_1)  # ['Lovelace', 'PERSON', 'Q7259']
 print(ent_london_5)  # ['London', 'GPE', 'Q84']
 ```
-
-| Text     | ent_type\_ | ent_kb_id\_ |
-| -------- | ---------- | ----------- |
-| Ada      | `"PERSON"` | `"Q7259"`   |
-| Lovelace | `"PERSON"` | `"Q7259"`   |
-| was      | -          | -           |
-| born     | -          | -           |
-| in       | -          | -           |
-| London   | `"GPE"`    | `"Q84"`     |
 
 ## Tokenization {#tokenization}
 
@@ -605,15 +763,15 @@ import Tokenization101 from 'usage/101/\_tokenization.md'
 
 <Accordion title="Algorithm details: How spaCy's tokenizer works" id="how-tokenizer-works" spaced>
 
-spaCy introduces a novel tokenization algorithm, that gives a better balance
-between performance, ease of definition, and ease of alignment into the original
+spaCy introduces a novel tokenization algorithm that gives a better balance
+between performance, ease of definition and ease of alignment into the original
 string.
 
 After consuming a prefix or suffix, we consult the special cases again. We want
 the special cases to handle things like "don't" in English, and we want the same
 rule to work for "(don't)!". We do this by splitting off the open bracket, then
-the exclamation, then the close bracket, and finally matching the special case.
-Here's an implementation of the algorithm in Python, optimized for readability
+the exclamation, then the closed bracket, and finally matching the special case.
+Here's an implementation of the algorithm in Python optimized for readability
 rather than performance:
 
 ```python
@@ -687,43 +845,33 @@ The algorithm can be summarized as follows:
    #2.
 6. If we can't consume a prefix or a suffix, look for a URL match.
 7. If there's no URL match, then look for a special case.
-8. Look for "infixes" — stuff like hyphens etc. and split the substring into
+8. Look for "infixes" – stuff like hyphens etc. and split the substring into
    tokens on all infixes.
 9. Once we can't consume any more of the string, handle it as a single token.
 
 </Accordion>
 
 **Global** and **language-specific** tokenizer data is supplied via the language
-data in
-[`spacy/lang`](https://github.com/explosion/spaCy/tree/master/spacy/lang). The
-tokenizer exceptions define special cases like "don't" in English, which needs
-to be split into two tokens: `{ORTH: "do"}` and `{ORTH: "n't", NORM: "not"}`.
-The prefixes, suffixes and infixes mostly define punctuation rules – for
-example, when to split off periods (at the end of a sentence), and when to leave
-tokens containing periods intact (abbreviations like "U.S.").
+data in [`spacy/lang`](%%GITHUB_SPACY/spacy/lang). The tokenizer exceptions
+define special cases like "don't" in English, which needs to be split into two
+tokens: `{ORTH: "do"}` and `{ORTH: "n't", NORM: "not"}`. The prefixes, suffixes
+and infixes mostly define punctuation rules – for example, when to split off
+periods (at the end of a sentence), and when to leave tokens containing periods
+intact (abbreviations like "U.S.").
 
 <Accordion title="Should I change the language data or add custom tokenizer rules?" id="lang-data-vs-tokenizer">
 
 Tokenization rules that are specific to one language, but can be **generalized
-across that language** should ideally live in the language data in
-[`spacy/lang`](https://github.com/explosion/spaCy/tree/master/spacy/lang) – we
-always appreciate pull requests! Anything that's specific to a domain or text
-type – like financial trading abbreviations, or Bavarian youth slang – should be
-added as a special case rule to your tokenizer instance. If you're dealing with
-a lot of customizations, it might make sense to create an entirely custom
-subclass.
+across that language**, should ideally live in the language data in
+[`spacy/lang`](%%GITHUB_SPACY/spacy/lang) – we always appreciate pull requests!
+Anything that's specific to a domain or text type – like financial trading
+abbreviations or Bavarian youth slang – should be added as a special case rule
+to your tokenizer instance. If you're dealing with a lot of customizations, it
+might make sense to create an entirely custom subclass.
 
 </Accordion>
 
 ---
-
-<!--
-
-### Customizing the tokenizer {#tokenizer-custom}
-
-TODO: rewrite the docs on custom tokenization in a more user-friendly order, including details on how to integrate a fully custom tokenizer, representing a tokenizer in the config etc.
-
--->
 
 ### Adding special case tokenization rules {#special-cases}
 
@@ -822,8 +970,8 @@ import spacy
 from spacy.tokenizer import Tokenizer
 
 special_cases = {":)": [{"ORTH": ":)"}]}
-prefix_re = re.compile(r'''^[\[\("']''')
-suffix_re = re.compile(r'''[\]\)"']$''')
+prefix_re = re.compile(r'''^[\\[\\("']''')
+suffix_re = re.compile(r'''[\\]\\)"']$''')
 infix_re = re.compile(r'''[-~]''')
 simple_url_re = re.compile(r'''^https?://''')
 
@@ -869,7 +1017,7 @@ expressions – for example,
 [`compile_suffix_regex`](/api/top-level#util.compile_suffix_regex):
 
 ```python
-suffixes = nlp.Defaults.suffixes + (r'''-+$''',)
+suffixes = nlp.Defaults.suffixes + [r'''-+$''',]
 suffix_regex = spacy.util.compile_suffix_regex(suffixes)
 nlp.tokenizer.suffix_search = suffix_regex.search
 ```
@@ -890,13 +1038,15 @@ function that behaves the same way.
 
 <Infobox title="Important note" variant="warning">
 
-If you're using a statistical model, writing to the
+If you've loaded a trained pipeline, writing to the
 [`nlp.Defaults`](/api/language#defaults) or `English.Defaults` directly won't
-work, since the regular expressions are read from the model and will be compiled
-when you load it. If you modify `nlp.Defaults`, you'll only see the effect if
-you call [`spacy.blank`](/api/top-level#spacy.blank). If you want to modify the
-tokenizer loaded from a statistical model, you should modify `nlp.tokenizer`
-directly.
+work, since the regular expressions are read from the pipeline data and will be
+compiled when you load it. If you modify `nlp.Defaults`, you'll only see the
+effect if you call [`spacy.blank`](/api/top-level#spacy.blank). If you want to
+modify the tokenizer loaded from a trained pipeline, you should modify
+`nlp.tokenizer` directly. If you're training your own pipeline, you can register
+[callbacks](/usage/training/#custom-code-nlp-callbacks) to modify the `nlp`
+object before training.
 
 </Infobox>
 
@@ -905,7 +1055,7 @@ but also detailed regular expressions that take the surrounding context into
 account. For example, there is a regular expression that treats a hyphen between
 letters as an infix. If you do not want the tokenizer to split on hyphens
 between letters, you can modify the existing infix definition from
-[`lang/punctuation.py`](https://github.com/explosion/spaCy/blob/master/spacy/lang/punctuation.py):
+[`lang/punctuation.py`](%%GITHUB_SPACY/spacy/lang/punctuation.py):
 
 ```python
 ### {executable="true"}
@@ -942,10 +1092,10 @@ print([t.text for t in doc]) # ['mother-in-law']
 ```
 
 For an overview of the default regular expressions, see
-[`lang/punctuation.py`](https://github.com/explosion/spaCy/blob/master/spacy/lang/punctuation.py)
-and language-specific definitions such as
-[`lang/de/punctuation.py`](https://github.com/explosion/spaCy/blob/master/spacy/lang/de/punctuation.py)
-for German.
+[`lang/punctuation.py`](%%GITHUB_SPACY/spacy/lang/punctuation.py) and
+language-specific definitions such as
+[`lang/de/punctuation.py`](%%GITHUB_SPACY/spacy/lang/de/punctuation.py) for
+German.
 
 ### Hooking a custom tokenizer into the pipeline {#custom-tokenizer}
 
@@ -958,7 +1108,7 @@ tokenized `Doc`.
 ![The processing pipeline](../images/pipeline.svg)
 
 To overwrite the existing tokenizer, you need to replace `nlp.tokenizer` with a
-custom function that takes a text, and returns a [`Doc`](/api/doc).
+custom function that takes a text and returns a [`Doc`](/api/doc).
 
 > #### Creating a Doc
 >
@@ -1066,20 +1216,20 @@ print(doc.text, [token.text for token in doc])
 
 <Infobox title="Important note on tokenization and models" variant="warning">
 
-Keep in mind that your model's result may be less accurate if the tokenization
+Keep in mind that your models' results may be less accurate if the tokenization
 during training differs from the tokenization at runtime. So if you modify a
-pretrained model's tokenization afterwards, it may produce very different
-predictions. You should therefore train your model with the **same tokenizer**
-it will be using at runtime. See the docs on
+trained pipeline's tokenization afterwards, it may produce very different
+predictions. You should therefore train your pipeline with the **same
+tokenizer** it will be using at runtime. See the docs on
 [training with custom tokenization](#custom-tokenizer-training) for details.
 
 </Infobox>
 
 #### Training with custom tokenization {#custom-tokenizer-training new="3"}
 
-spaCy's [training config](/usage/training#config) describe the settings,
+spaCy's [training config](/usage/training#config) describes the settings,
 hyperparameters, pipeline and tokenizer used for constructing and training the
-model. The `[nlp.tokenizer]` block refers to a **registered function** that
+pipeline. The `[nlp.tokenizer]` block refers to a **registered function** that
 takes the `nlp` object and returns a tokenizer. Here, we're registering a
 function called `whitespace_tokenizer` in the
 [`@tokenizers` registry](/api/registry). To make sure spaCy knows how to
@@ -1212,7 +1362,7 @@ token.
 
 ```python
 ### {executable="true"}
-from spacy.gold import Alignment
+from spacy.training import Alignment
 
 other_tokens = ["i", "listened", "to", "obama", "'", "s", "podcasts", "."]
 spacy_tokens = ["i", "listened", "to", "obama", "'s", "podcasts", "."]
@@ -1313,7 +1463,7 @@ filtered_spans = filter_spans(spans)
 The [`retokenizer.split`](/api/doc#retokenizer.split) method allows splitting
 one token into two or more tokens. This can be useful for cases where
 tokenization rules alone aren't sufficient. For example, you might want to split
-"its" into the tokens "it" and "is" — but not the possessive pronoun "its". You
+"its" into the tokens "it" and "is" – but not the possessive pronoun "its". You
 can write rule-based logic that can find only the correct "its" to split, but by
 that time, the `Doc` will already be tokenized.
 
@@ -1361,7 +1511,7 @@ the token indices after splitting.
 | `"York"` | `doc[2]`      | Attach this token to `doc[1]` in the original `Doc`, i.e. "in".                                     |
 
 If you don't care about the heads (for example, if you're only running the
-tokenizer and not the parser), you can each subtoken to itself:
+tokenizer and not the parser), you can attach each subtoken to itself:
 
 ```python
 ### {highlight="3"}
@@ -1439,28 +1589,48 @@ print("After:", [(token.text, token._.is_musician) for token in doc])
 
 ## Sentence Segmentation {#sbd}
 
-<!-- TODO: include senter -->
-
 A [`Doc`](/api/doc) object's sentences are available via the `Doc.sents`
-property. Unlike other libraries, spaCy uses the dependency parse to determine
-sentence boundaries. This is usually more accurate than a rule-based approach,
-but it also means you'll need a **statistical model** and accurate predictions.
-If your texts are closer to general-purpose news or web text, this should work
-well out-of-the-box. For social media or conversational text that doesn't follow
-the same rules, your application may benefit from a custom rule-based
-implementation. You can either use the built-in
-[`Sentencizer`](/api/sentencizer) or plug an entirely custom rule-based function
-into your [processing pipeline](/usage/processing-pipelines).
+property. To view a `Doc`'s sentences, you can iterate over the `Doc.sents`, a
+generator that yields [`Span`](/api/span) objects. You can check whether a `Doc`
+has sentence boundaries by calling
+[`Doc.has_annotation`](/api/doc#has_annotation) with the attribute name
+`"SENT_START"`.
 
-spaCy's dependency parser respects already set boundaries, so you can preprocess
-your `Doc` using custom rules _before_ it's parsed. Depending on your text, this
-may also improve accuracy, since the parser is constrained to predict parses
-consistent with the sentence boundaries.
+```python
+### {executable="true"}
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+doc = nlp("This is a sentence. This is another sentence.")
+assert doc.has_annotation("SENT_START")
+for sent in doc.sents:
+    print(sent.text)
+```
+
+spaCy provides four alternatives for sentence segmentation:
+
+1. [Dependency parser](#sbd-parser): the statistical
+   [`DependencyParser`](/api/dependencyparser) provides the most accurate
+   sentence boundaries based on full dependency parses.
+2. [Statistical sentence segmenter](#sbd-senter): the statistical
+   [`SentenceRecognizer`](/api/sentencerecognizer) is a simpler and faster
+   alternative to the parser that only sets sentence boundaries.
+3. [Rule-based pipeline component](#sbd-component): the rule-based
+   [`Sentencizer`](/api/sentencizer) sets sentence boundaries using a
+   customizable list of sentence-final punctuation.
+4. [Custom function](#sbd-custom): your own custom function added to the
+   processing pipeline can set sentence boundaries by writing to
+   `Token.is_sent_start`.
 
 ### Default: Using the dependency parse {#sbd-parser model="parser"}
 
-To view a `Doc`'s sentences, you can iterate over the `Doc.sents`, a generator
-that yields [`Span`](/api/span) objects.
+Unlike other libraries, spaCy uses the dependency parse to determine sentence
+boundaries. This is usually the most accurate approach, but it requires a
+**trained pipeline** that provides accurate predictions. If your texts are
+closer to general-purpose news or web text, this should work well out-of-the-box
+with spaCy's provided trained pipelines. For social media or conversational text
+that doesn't follow the same rules, your application may benefit from a custom
+trained or rule-based component.
 
 ```python
 ### {executable="true"}
@@ -1472,19 +1642,55 @@ for sent in doc.sents:
     print(sent.text)
 ```
 
+spaCy's dependency parser respects already set boundaries, so you can preprocess
+your `Doc` using custom components _before_ it's parsed. Depending on your text,
+this may also improve parse accuracy, since the parser is constrained to predict
+parses consistent with the sentence boundaries.
+
+### Statistical sentence segmenter {#sbd-senter model="senter" new="3"}
+
+The [`SentenceRecognizer`](/api/sentencerecognizer) is a simple statistical
+component that only provides sentence boundaries. Along with being faster and
+smaller than the parser, its primary advantage is that it's easier to train
+because it only requires annotated sentence boundaries rather than full
+dependency parses. spaCy's [trained pipelines](/models) include both a parser
+and a trained sentence segmenter, which is
+[disabled](/usage/processing-pipelines#disabling) by default. If you only need
+sentence boundaries and no parser, you can use the `exclude` or `disable`
+argument on [`spacy.load`](/api/top-level#spacy.load) to load the pipeline
+without the parser and then enable the sentence recognizer explicitly with
+[`nlp.enable_pipe`](/api/language#enable_pipe).
+
+> #### senter vs. parser
+>
+> The recall for the `senter` is typically slightly lower than for the parser,
+> which is better at predicting sentence boundaries when punctuation is not
+> present.
+
+```python
+### {executable="true"}
+import spacy
+
+nlp = spacy.load("en_core_web_sm", exclude=["parser"])
+nlp.enable_pipe("senter")
+doc = nlp("This is a sentence. This is another sentence.")
+for sent in doc.sents:
+    print(sent.text)
+```
+
 ### Rule-based pipeline component {#sbd-component}
 
 The [`Sentencizer`](/api/sentencizer) component is a
 [pipeline component](/usage/processing-pipelines) that splits sentences on
 punctuation like `.`, `!` or `?`. You can plug it into your pipeline if you only
-need sentence boundaries without the dependency parse.
+need sentence boundaries without dependency parses.
 
 ```python
 ### {executable="true"}
 import spacy
 from spacy.lang.en import English
 
-nlp = English()  # just the language with no model
+nlp = English()  # just the language with no pipeline
 nlp.add_pipe("sentencizer")
 doc = nlp("This is a sentence. This is another sentence.")
 for sent in doc.sents:
@@ -1504,9 +1710,10 @@ and can still be overwritten by the parser.
 <Infobox title="Important note" variant="warning">
 
 To prevent inconsistent state, you can only set boundaries **before** a document
-is parsed (and `Doc.is_parsed` is `False`). To ensure that your component is
-added in the right place, you can set `before='parser'` or `first=True` when
-adding it to the pipeline using [`nlp.add_pipe`](/api/language#add_pipe).
+is parsed (and `doc.has_annotation("DEP")` is `False`). To ensure that your
+component is added in the right place, you can set `before='parser'` or
+`first=True` when adding it to the pipeline using
+[`nlp.add_pipe`](/api/language#add_pipe).
 
 </Infobox>
 
@@ -1529,7 +1736,7 @@ nlp = spacy.load("en_core_web_sm")
 doc = nlp(text)
 print("Before:", [sent.text for sent in doc.sents])
 
-@Language.component("set_custom_coundaries")
+@Language.component("set_custom_boundaries")
 def set_custom_boundaries(doc):
     for token in doc[:-1]:
         if token.text == "...":
@@ -1540,6 +1747,70 @@ nlp.add_pipe("set_custom_boundaries", before="parser")
 doc = nlp(text)
 print("After:", [sent.text for sent in doc.sents])
 ```
+
+## Mappings & Exceptions {#mappings-exceptions new="3"}
+
+The [`AttributeRuler`](/api/attributeruler) manages **rule-based mappings and
+exceptions** for all token-level attributes. As the number of
+[pipeline components](/api/#architecture-pipeline) has grown from spaCy v2 to
+v3, handling rules and exceptions in each component individually has become
+impractical, so the `AttributeRuler` provides a single component with a unified
+pattern format for all token attribute mappings and exceptions.
+
+The `AttributeRuler` uses
+[`Matcher` patterns](/usage/rule-based-matching#adding-patterns) to identify
+tokens and then assigns them the provided attributes. If needed, the
+[`Matcher`](/api/matcher) patterns can include context around the target token.
+For example, the attribute ruler can:
+
+- provide exceptions for any **token attributes**
+- map **fine-grained tags** to **coarse-grained tags** for languages without
+  statistical morphologizers (replacing the v2.x `tag_map` in the
+  [language data](#language-data))
+- map token **surface form + fine-grained tags** to **morphological features**
+  (replacing the v2.x `morph_rules` in the [language data](#language-data))
+- specify the **tags for space tokens** (replacing hard-coded behavior in the
+  tagger)
+
+The following example shows how the tag and POS `NNP`/`PROPN` can be specified
+for the phrase `"The Who"`, overriding the tags provided by the statistical
+tagger and the POS tag map.
+
+```python
+### {executable="true"}
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+text = "I saw The Who perform. Who did you see?"
+doc1 = nlp(text)
+print(doc1[2].tag_, doc1[2].pos_)  # DT DET
+print(doc1[3].tag_, doc1[3].pos_)  # WP PRON
+
+# Add attribute ruler with exception for "The Who" as NNP/PROPN NNP/PROPN
+ruler = nlp.get_pipe("attribute_ruler")
+# Pattern to match "The Who"
+patterns = [[{"LOWER": "the"}, {"TEXT": "Who"}]]
+# The attributes to assign to the matched token
+attrs = {"TAG": "NNP", "POS": "PROPN"}
+# Add rules to the attribute ruler
+ruler.add(patterns=patterns, attrs=attrs, index=0)  # "The" in "The Who"
+ruler.add(patterns=patterns, attrs=attrs, index=1)  # "Who" in "The Who"
+
+doc2 = nlp(text)
+print(doc2[2].tag_, doc2[2].pos_)  # NNP PROPN
+print(doc2[3].tag_, doc2[3].pos_)  # NNP PROPN
+# The second "Who" remains unmodified
+print(doc2[5].tag_, doc2[5].pos_)  # WP PRON
+```
+
+<Infobox variant="warning" title="Migrating from spaCy v2.x">
+
+The [`AttributeRuler`](/api/attributeruler) can import a **tag map and morph
+rules** in the v2.x format via its built-in methods or when the component is
+initialized before training. See the
+[migration guide](/usage/v3#migrating-training-mappings-exceptions) for details.
+
+</Infobox>
 
 ## Word vectors and semantic similarity {#vectors-similarity}
 
@@ -1555,12 +1826,14 @@ or Tomas Mikolov's original
 [Word2vec implementation](https://code.google.com/archive/p/word2vec/). Most
 word vector libraries output an easy-to-read text-based format, where each line
 consists of the word followed by its vector. For everyday use, we want to
-convert the vectors model into a binary format that loads faster and takes up
-less space on disk. The easiest way to do this is the
-[`init model`](/api/cli#init-model) command-line utility. This will output a
-spaCy model in the directory `/tmp/la_vectors_wiki_lg`, giving you access to
-some nice Latin vectors. You can then pass the directory path to
-[`spacy.load`](/api/top-level#spacy.load).
+convert the vectors into a binary format that loads faster and takes up less
+space on disk. The easiest way to do this is the
+[`init vectors`](/api/cli#init-vectors) command-line utility. This will output a
+blank spaCy pipeline in the directory `/tmp/la_vectors_wiki_lg`, giving you
+access to some nice Latin vectors. You can then pass the directory path to
+[`spacy.load`](/api/top-level#spacy.load) or use it in the
+[`[initialize]`](/api/data-formats#config-initialize) of your config when you
+[train](/usage/training) a model.
 
 > #### Usage example
 >
@@ -1573,7 +1846,7 @@ some nice Latin vectors. You can then pass the directory path to
 
 ```cli
 $ wget https://s3-us-west-1.amazonaws.com/fasttext-vectors/word-vectors-v2/cc.la.300.vec.gz
-$ python -m spacy init model en /tmp/la_vectors_wiki_lg --vectors-loc cc.la.300.vec.gz
+$ python -m spacy init vectors en cc.la.300.vec.gz /tmp/la_vectors_wiki_lg
 ```
 
 <Accordion title="How to optimize vector coverage" id="custom-vectors-coverage" spaced>
@@ -1581,14 +1854,13 @@ $ python -m spacy init model en /tmp/la_vectors_wiki_lg --vectors-loc cc.la.300.
 To help you strike a good balance between coverage and memory usage, spaCy's
 [`Vectors`](/api/vectors) class lets you map **multiple keys** to the **same
 row** of the table. If you're using the
-[`spacy init model`](/api/cli#init-model) command to create a vocabulary,
-pruning the vectors will be taken care of automatically if you set the
-`--prune-vectors` flag. You can also do it manually in the following steps:
+[`spacy init vectors`](/api/cli#init-vectors) command to create a vocabulary,
+pruning the vectors will be taken care of automatically if you set the `--prune`
+flag. You can also do it manually in the following steps:
 
-1. Start with a **word vectors model** that covers a huge vocabulary. For
-   instance, the [`en_vectors_web_lg`](/models/en-starters#en_vectors_web_lg)
-   model provides 300-dimensional GloVe vectors for over 1 million terms of
-   English.
+1. Start with a **word vectors package** that covers a huge vocabulary. For
+   instance, the [`en_core_web_lg`](/models/en#en_core_web_lg) package provides
+   300-dimensional GloVe vectors for 685k terms of English.
 2. If your vocabulary has values set for the `Lexeme.prob` attribute, the
    lexemes will be sorted by descending probability to determine which vectors
    to prune. Otherwise, lexemes will be sorted by their order in the `Vocab`.
@@ -1596,7 +1868,7 @@ pruning the vectors will be taken care of automatically if you set the
    vectors you want to keep.
 
 ```python
-nlp = spacy.load('en_vectors_web_lg')
+nlp = spacy.load("en_core_web_lg")
 n_vectors = 105000  # number of vectors to keep
 removed_words = nlp.vocab.prune_vectors(n_vectors)
 
@@ -1607,7 +1879,7 @@ assert nlp.vocab.vectors.n_keys > n_vectors  # but not the total entries
 [`Vocab.prune_vectors`](/api/vocab#prune_vectors) reduces the current vector
 table to a given number of unique entries, and returns a dictionary containing
 the removed words, mapped to `(string, score)` tuples, where `string` is the
-entry the removed word was mapped to, and `score` the similarity score between
+entry the removed word was mapped to and `score` the similarity score between
 the two words.
 
 ```python
@@ -1628,17 +1900,17 @@ the two words.
 In the example above, the vector for "Shore" was removed and remapped to the
 vector of "coast", which is deemed about 73% similar. "Leaving" was remapped to
 the vector of "leaving", which is identical. If you're using the
-[`init model`](/api/cli#init-model) command, you can set the `--prune-vectors`
+[`init vectors`](/api/cli#init-vectors) command, you can set the `--prune`
 option to easily reduce the size of the vectors as you add them to a spaCy
-model:
+pipeline:
 
 ```cli
-$ python -m spacy init model en /tmp/la_vectors_web_md --vectors-loc la.300d.vec.tgz --prune-vectors 10000
+$ python -m spacy init vectors en la.300d.vec.tgz /tmp/la_vectors_web_md --prune 10000
 ```
 
-This will create a spaCy model with vectors for the first 10,000 words in the
-vectors model. All other words in the vectors model are mapped to the closest
-vector among those retained.
+This will create a blank spaCy pipeline with vectors for the first 10,000 words
+in the vectors. All other words in the vectors are mapped to the closest vector
+among those retained.
 
 </Accordion>
 
@@ -1653,8 +1925,8 @@ possible. You can modify the vectors via the [`Vocab`](/api/vocab) or
 if you have vectors in an arbitrary format, as you can read in the vectors with
 your own logic, and just set them with a simple loop. This method is likely to
 be slower than approaches that work with the whole vectors table at once, but
-it's a great approach for once-off conversions before you save out your model to
-disk.
+it's a great approach for once-off conversions before you save out your `nlp`
+object to disk.
 
 ```python
 ### Adding vectors
@@ -1670,7 +1942,7 @@ for word, vector in vector_data.items():
     vocab.set_vector(word, vector)
 ```
 
-## Language data {#language-data}
+## Language Data {#language-data}
 
 import LanguageData101 from 'usage/101/\_language-data.md'
 
@@ -1706,14 +1978,14 @@ print(nlp2.lang, [token.is_stop for token in nlp2("custom stop")])
 The [`@spacy.registry.languages`](/api/top-level#registry) decorator lets you
 register a custom language class and assign it a string name. This means that
 you can call [`spacy.blank`](/api/top-level#spacy.blank) with your custom
-language name, and even train models with it and refer to it in your
+language name, and even train pipelines with it and refer to it in your
 [training config](/usage/training#config).
 
 > #### Config usage
 >
 > After registering your custom language class using the `languages` registry,
 > you can refer to it in your [training config](/usage/training#config). This
-> means spaCy will train your model using the custom subclass.
+> means spaCy will train your pipeline using the custom subclass.
 >
 > ```ini
 > [nlp]

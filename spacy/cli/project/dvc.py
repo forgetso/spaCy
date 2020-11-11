@@ -1,6 +1,6 @@
 """This module contains helpers and subcommands for integrating spaCy projects
 with Data Version Controk (DVC). https://dvc.org"""
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Iterable
 import subprocess
 from pathlib import Path
 from wasabi import msg
@@ -8,6 +8,7 @@ from wasabi import msg
 from .._util import PROJECT_FILE, load_project_config, get_hash, project_cli
 from .._util import Arg, Opt, NAME, COMMAND
 from ...util import working_dir, split_command, join_command, run_command
+from ...util import SimpleFrozenList
 
 
 DVC_CONFIG = "dvc.yaml"
@@ -30,7 +31,10 @@ def project_update_dvc_cli(
     """Auto-generate Data Version Control (DVC) config. A DVC
     project can only define one pipeline, so you need to specify one workflow
     defined in the project.yml. If no workflow is specified, the first defined
-    workflow is used. The DVC config will only be updated if the project.yml changed.
+    workflow is used. The DVC config will only be updated if the project.yml
+    changed.
+
+    DOCS: https://nightly.spacy.io/api/cli#project-dvc
     """
     project_update_dvc(project_dir, workflow, verbose=verbose, force=force)
 
@@ -130,7 +134,7 @@ def update_dvc_config(
 
 
 def run_dvc_commands(
-    commands: List[str] = tuple(), flags: Dict[str, bool] = {},
+    commands: Iterable[str] = SimpleFrozenList(), flags: Dict[str, bool] = {}
 ) -> None:
     """Run a sequence of DVC commands in a subprocess, in order.
 

@@ -1,5 +1,7 @@
 import pytest
 from spacy.language import Language
+from spacy.pipeline import TrainablePipe
+from spacy.util import SimpleFrozenList, get_arg_names
 
 
 @pytest.fixture
@@ -81,9 +83,9 @@ def test_replace_last_pipe(nlp):
 def test_replace_pipe_config(nlp):
     nlp.add_pipe("entity_linker")
     nlp.add_pipe("sentencizer")
-    assert nlp.get_pipe("entity_linker").cfg["incl_prior"] == True
+    assert nlp.get_pipe("entity_linker").cfg["incl_prior"] is True
     nlp.replace_pipe("entity_linker", "entity_linker", config={"incl_prior": False})
-    assert nlp.get_pipe("entity_linker").cfg["incl_prior"] == False
+    assert nlp.get_pipe("entity_linker").cfg["incl_prior"] is False
 
 
 @pytest.mark.parametrize("old_name,new_name", [("old_pipe", "new_pipe")])
@@ -127,11 +129,24 @@ def test_enable_pipes_method(nlp, name):
 
 @pytest.mark.parametrize("name", ["my_component"])
 def test_disable_pipes_context(nlp, name):
+    """Test that an enabled component stays enabled after running the context manager."""
     nlp.add_pipe("new_pipe", name=name)
     assert nlp.has_pipe(name)
     with nlp.select_pipes(disable=name):
         assert not nlp.has_pipe(name)
     assert nlp.has_pipe(name)
+
+
+@pytest.mark.parametrize("name", ["my_component"])
+def test_disable_pipes_context_restore(nlp, name):
+    """Test that a disabled component stays disabled after running the context manager."""
+    nlp.add_pipe("new_pipe", name=name)
+    assert nlp.has_pipe(name)
+    nlp.disable_pipe(name)
+    assert not nlp.has_pipe(name)
+    with nlp.select_pipes(disable=name):
+        assert not nlp.has_pipe(name)
+    assert not nlp.has_pipe(name)
 
 
 def test_select_pipes_list_arg(nlp):
@@ -180,6 +195,11 @@ def test_select_pipes_errors(nlp):
 
     with pytest.raises(ValueError):
         nlp.select_pipes(enable=[], disable=["c3"])
+
+    disabled = nlp.select_pipes(disable=["c2"])
+    nlp.remove_pipe("c2")
+    with pytest.raises(ValueError):
+        disabled.restore()
 
 
 @pytest.mark.parametrize("n_pipes", [100])
@@ -249,3 +269,151 @@ def test_add_pipe_before_after():
         nlp.add_pipe("entity_ruler", before=True)
     with pytest.raises(ValueError):
         nlp.add_pipe("entity_ruler", first=False)
+
+
+def test_disable_enable_pipes():
+    name = "test_disable_enable_pipes"
+    results = {}
+
+    def make_component(name):
+        results[name] = ""
+
+        def component(doc):
+            nonlocal results
+            results[name] = doc.text
+            return doc
+
+        return component
+
+    c1 = Language.component(f"{name}1", func=make_component(f"{name}1"))
+    c2 = Language.component(f"{name}2", func=make_component(f"{name}2"))
+
+    nlp = Language()
+    nlp.add_pipe(f"{name}1")
+    nlp.add_pipe(f"{name}2")
+    assert results[f"{name}1"] == ""
+    assert results[f"{name}2"] == ""
+    assert nlp.pipeline == [(f"{name}1", c1), (f"{name}2", c2)]
+    assert nlp.pipe_names == [f"{name}1", f"{name}2"]
+    nlp.disable_pipe(f"{name}1")
+    assert nlp.disabled == [f"{name}1"]
+    assert nlp.component_names == [f"{name}1", f"{name}2"]
+    assert nlp.pipe_names == [f"{name}2"]
+    assert nlp.config["nlp"]["disabled"] == [f"{name}1"]
+    nlp("hello")
+    assert results[f"{name}1"] == ""  # didn't run
+    assert results[f"{name}2"] == "hello"  # ran
+    nlp.enable_pipe(f"{name}1")
+    assert nlp.disabled == []
+    assert nlp.pipe_names == [f"{name}1", f"{name}2"]
+    assert nlp.config["nlp"]["disabled"] == []
+    nlp("world")
+    assert results[f"{name}1"] == "world"
+    assert results[f"{name}2"] == "world"
+    nlp.disable_pipe(f"{name}2")
+    nlp.remove_pipe(f"{name}2")
+    assert nlp.components == [(f"{name}1", c1)]
+    assert nlp.pipeline == [(f"{name}1", c1)]
+    assert nlp.component_names == [f"{name}1"]
+    assert nlp.pipe_names == [f"{name}1"]
+    assert nlp.disabled == []
+    assert nlp.config["nlp"]["disabled"] == []
+    nlp.rename_pipe(f"{name}1", name)
+    assert nlp.components == [(name, c1)]
+    assert nlp.component_names == [name]
+    nlp("!")
+    assert results[f"{name}1"] == "!"
+    assert results[f"{name}2"] == "world"
+    with pytest.raises(ValueError):
+        nlp.disable_pipe(f"{name}2")
+    nlp.disable_pipe(name)
+    assert nlp.component_names == [name]
+    assert nlp.pipe_names == []
+    assert nlp.config["nlp"]["disabled"] == [name]
+    nlp("?")
+    assert results[f"{name}1"] == "!"
+
+
+def test_pipe_methods_frozen():
+    """Test that spaCy raises custom error messages if "frozen" properties are
+    accessed. We still want to use a list here to not break backwards
+    compatibility, but users should see an error if they're trying to append
+    to nlp.pipeline etc."""
+    nlp = Language()
+    ner = nlp.add_pipe("ner")
+    assert nlp.pipe_names == ["ner"]
+    for prop in [
+        nlp.pipeline,
+        nlp.pipe_names,
+        nlp.components,
+        nlp.component_names,
+        nlp.disabled,
+        nlp.factory_names,
+    ]:
+        assert isinstance(prop, list)
+        assert isinstance(prop, SimpleFrozenList)
+    with pytest.raises(NotImplementedError):
+        nlp.pipeline.append(("ner2", ner))
+    with pytest.raises(NotImplementedError):
+        nlp.pipe_names.pop()
+    with pytest.raises(NotImplementedError):
+        nlp.components.sort()
+    with pytest.raises(NotImplementedError):
+        nlp.component_names.clear()
+
+
+@pytest.mark.parametrize(
+    "pipe", ["tagger", "parser", "ner", "textcat", "morphologizer"]
+)
+def test_pipe_label_data_exports_labels(pipe):
+    nlp = Language()
+    pipe = nlp.add_pipe(pipe)
+    # Make sure pipe has pipe labels
+    assert getattr(pipe, "label_data", None) is not None
+    # Make sure pipe can be initialized with labels
+    initialize = getattr(pipe, "initialize", None)
+    assert initialize is not None
+    assert "labels" in get_arg_names(initialize)
+
+
+@pytest.mark.parametrize("pipe", ["senter", "entity_linker"])
+def test_pipe_label_data_no_labels(pipe):
+    nlp = Language()
+    pipe = nlp.add_pipe(pipe)
+    assert getattr(pipe, "label_data", None) is None
+    initialize = getattr(pipe, "initialize", None)
+    if initialize is not None:
+        assert "labels" not in get_arg_names(initialize)
+
+
+def test_warning_pipe_begin_training():
+    with pytest.warns(UserWarning, match="begin_training"):
+
+        class IncompatPipe(TrainablePipe):
+            def __init__(self):
+                ...
+
+            def begin_training(*args, **kwargs):
+                ...
+
+
+def test_pipe_methods_initialize():
+    """Test that the [initialize] config reflects the components correctly."""
+    nlp = Language()
+    nlp.add_pipe("tagger")
+    assert "tagger" not in nlp.config["initialize"]["components"]
+    nlp.config["initialize"]["components"]["tagger"] = {"labels": ["hello"]}
+    assert nlp.config["initialize"]["components"]["tagger"] == {"labels": ["hello"]}
+    nlp.remove_pipe("tagger")
+    assert "tagger" not in nlp.config["initialize"]["components"]
+    nlp.add_pipe("tagger")
+    assert "tagger" not in nlp.config["initialize"]["components"]
+    nlp.config["initialize"]["components"]["tagger"] = {"labels": ["hello"]}
+    nlp.rename_pipe("tagger", "my_tagger")
+    assert "tagger" not in nlp.config["initialize"]["components"]
+    assert nlp.config["initialize"]["components"]["my_tagger"] == {"labels": ["hello"]}
+    nlp.config["initialize"]["components"]["test"] = {"foo": "bar"}
+    nlp.add_pipe("ner", name="test")
+    assert "test" in nlp.config["initialize"]["components"]
+    nlp.remove_pipe("test")
+    assert "test" not in nlp.config["initialize"]["components"]

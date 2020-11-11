@@ -7,9 +7,10 @@ import re
 import sys
 
 from ._util import app, Arg, Opt
-from ..gold import docs_to_json
+from ..training import docs_to_json
 from ..tokens import DocBin
-from ..gold.converters import iob2docs, conll_ner2docs, json2docs, conllu2docs
+from ..training.converters import iob_to_docs, conll_ner_to_docs, json_to_docs
+from ..training.converters import conllu_to_docs
 
 
 # Converters are matched by file extension except for ner/iob, which are
@@ -18,12 +19,12 @@ from ..gold.converters import iob2docs, conll_ner2docs, json2docs, conllu2docs
 # imported from /converters.
 
 CONVERTERS = {
-    "conllubio": conllu2docs,
-    "conllu": conllu2docs,
-    "conll": conllu2docs,
-    "ner": conll_ner2docs,
-    "iob": iob2docs,
-    "json": json2docs,
+    "conllubio": conllu_to_docs,
+    "conllu": conllu_to_docs,
+    "conll": conllu_to_docs,
+    "ner": conll_ner_to_docs,
+    "iob": iob_to_docs,
+    "json": json_to_docs,
 }
 
 
@@ -44,12 +45,13 @@ def convert_cli(
     file_type: FileTypes = Opt("spacy", "--file-type", "-t", help="Type of data to produce"),
     n_sents: int = Opt(1, "--n-sents", "-n", help="Number of sentences per doc (0 to disable)"),
     seg_sents: bool = Opt(False, "--seg-sents", "-s", help="Segment sentences (for -c ner)"),
-    model: Optional[str] = Opt(None, "--model", "-b", help="Model for sentence segmentation (for -s)"),
+    model: Optional[str] = Opt(None, "--model", "--base", "-b", help="Trained spaCy pipeline for sentence segmentation to use as base (for --seg-sents)"),
     morphology: bool = Opt(False, "--morphology", "-m", help="Enable appending morphology to tags"),
     merge_subtokens: bool = Opt(False, "--merge-subtokens", "-T", help="Merge CoNLL-U subtokens"),
     converter: str = Opt("auto", "--converter", "-c", help=f"Converter: {tuple(CONVERTERS.keys())}"),
     ner_map: Optional[Path] = Opt(None, "--ner-map", "-nm", help="NER tag mapping (as JSON-encoded dict of entity types)", exists=True),
     lang: Optional[str] = Opt(None, "--lang", "-l", help="Language (if tokenizer required)"),
+    concatenate: bool = Opt(None, "--concatenate", "-C", help="Concatenate output to a single file"),
     # fmt: on
 ):
     """
@@ -60,6 +62,8 @@ def convert_cli(
     If no output_dir is specified and the output format is JSON, the data
     is written to stdout, so you can pipe them forward to a JSON file:
     $ spacy convert some_file.conllu --file-type json > some_file.json
+
+    DOCS: https://nightly.spacy.io/api/cli#convert
     """
     if isinstance(file_type, FileTypes):
         # We get an instance of the FileTypes from the CLI so we need its string value
@@ -82,6 +86,7 @@ def convert_cli(
         converter=converter,
         ner_map=ner_map,
         lang=lang,
+        concatenate=concatenate,
         silent=silent,
         msg=msg,
     )
@@ -100,13 +105,15 @@ def convert(
     converter: str = "auto",
     ner_map: Optional[Path] = None,
     lang: Optional[str] = None,
+    concatenate: bool = False,
     silent: bool = True,
     msg: Optional[Printer],
 ) -> None:
     if not msg:
         msg = Printer(no_print=silent)
     ner_map = srsly.read_json(ner_map) if ner_map is not None else None
-    for input_loc in walk_directory(Path(input_path)):
+    doc_files = []
+    for input_loc in walk_directory(Path(input_path), converter):
         input_data = input_loc.open("r", encoding="utf-8").read()
         # Use converter function to convert data
         func = CONVERTERS[converter]
@@ -121,6 +128,13 @@ def convert(
             no_print=silent,
             ner_map=ner_map,
         )
+        doc_files.append((input_loc, docs))
+    if concatenate:
+        all_docs = []
+        for _, docs in doc_files:
+            all_docs.extend(docs)
+        doc_files = [(input_path, all_docs)]
+    for input_loc, docs in doc_files:
         if file_type == "json":
             data = [docs_to_json(docs)]
         else:
@@ -174,7 +188,7 @@ def autodetect_ner_format(input_data: str) -> Optional[str]:
     return None
 
 
-def walk_directory(path: Path) -> List[Path]:
+def walk_directory(path: Path, converter: str) -> List[Path]:
     if not path.is_dir():
         return [path]
     paths = [path]
@@ -188,8 +202,16 @@ def walk_directory(path: Path) -> List[Path]:
             continue
         elif path.is_dir():
             paths.extend(path.iterdir())
+        elif converter == "json" and not path.parts[-1].endswith("json"):
+            continue
+        elif converter == "conll" and not path.parts[-1].endswith("conll"):
+            continue
+        elif converter == "iob" and not path.parts[-1].endswith("iob"):
+            continue
         else:
             locs.append(path)
+    # It's good to sort these, in case the ordering messes up cache.
+    locs.sort()
     return locs
 
 
@@ -214,11 +236,11 @@ def verify_cli_args(
     if ner_map is not None and not Path(ner_map).exists():
         msg.fail("NER map not found", ner_map, exits=1)
     if input_path.is_dir():
-        input_locs = walk_directory(input_path)
+        input_locs = walk_directory(input_path, converter)
         if len(input_locs) == 0:
             msg.fail("No input files in directory", input_path, exits=1)
         file_types = list(set([loc.suffix[1:] for loc in input_locs]))
-        if len(file_types) >= 2:
+        if converter == "auto" and len(file_types) >= 2:
             file_types = ",".join(file_types)
             msg.fail("All input files must be same type", file_types, exits=1)
     if converter != "auto" and converter not in CONVERTERS:
@@ -227,11 +249,11 @@ def verify_cli_args(
 
 def _get_converter(msg, converter, input_path):
     if input_path.is_dir():
-        input_path = walk_directory(input_path)[0]
+        input_path = walk_directory(input_path, converter)[0]
     if converter == "auto":
         converter = input_path.suffix[1:]
     if converter == "ner" or converter == "iob":
-        with input_path.open() as file_:
+        with input_path.open(encoding="utf8") as file_:
             input_data = file_.read()
         converter_autodetect = autodetect_ner_format(input_data)
         if converter_autodetect == "ner":
@@ -244,6 +266,6 @@ def _get_converter(msg, converter, input_path):
             msg.warn(
                 "Can't automatically detect NER format. "
                 "Conversion may not succeed. "
-                "See https://spacy.io/api/cli#convert"
+                "See https://nightly.spacy.io/api/cli#convert"
             )
     return converter

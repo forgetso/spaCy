@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional, Callable, Iterable
 from thinc.api import chain, clone, list2ragged, reduce_mean, residual
 from thinc.api import Model, Maxout, Linear
@@ -24,8 +25,8 @@ def build_nel_encoder(tok2vec: Model, nO: Optional[int] = None) -> Model:
     return model
 
 
-@registry.assets.register("spacy.KBFromFile.v1")
-def load_kb(kb_path: str) -> Callable[[Vocab], KnowledgeBase]:
+@registry.misc.register("spacy.KBFromFile.v1")
+def load_kb(kb_path: Path) -> Callable[[Vocab], KnowledgeBase]:
     def kb_from_file(vocab):
         kb = KnowledgeBase(vocab, entity_vector_length=1)
         kb.from_disk(kb_path)
@@ -34,7 +35,7 @@ def load_kb(kb_path: str) -> Callable[[Vocab], KnowledgeBase]:
     return kb_from_file
 
 
-@registry.assets.register("spacy.EmptyKB.v1")
+@registry.misc.register("spacy.EmptyKB.v1")
 def empty_kb(entity_vector_length: int) -> Callable[[Vocab], KnowledgeBase]:
     def empty_kb_factory(vocab):
         return KnowledgeBase(vocab=vocab, entity_vector_length=entity_vector_length)
@@ -42,6 +43,6 @@ def empty_kb(entity_vector_length: int) -> Callable[[Vocab], KnowledgeBase]:
     return empty_kb_factory
 
 
-@registry.assets.register("spacy.CandidateGenerator.v1")
+@registry.misc.register("spacy.CandidateGenerator.v1")
 def create_candidates() -> Callable[[KnowledgeBase, "Span"], Iterable[Candidate]]:
     return get_candidates

@@ -34,7 +34,7 @@ architectures and their arguments and hyperparameters.
 | `model`          | A model instance that predicts the tag probabilities. The output vectors should match the number of tags in size, and be normalized as probabilities (all scores between 0 and 1, with the rows summing to `1`). Defaults to [Tagger](/api/architectures#Tagger). ~~Model[List[Doc], List[Floats2d]]~~ |
 
 ```python
-https://github.com/explosion/spaCy/blob/develop/spacy/pipeline/tagger.pyx
+%%GITHUB_SPACY/spacy/pipeline/tagger.pyx
 ```
 
 ## Tagger.\_\_init\_\_ {#init tag="method"}
@@ -112,31 +112,48 @@ applied to the `Doc` in order. Both [`__call__`](/api/tagger#call) and
 | `batch_size`   | The number of documents to buffer. Defaults to `128`. ~~int~~ |
 | **YIELDS**     | The processed documents in order. ~~Doc~~                     |
 
-## Tagger.begin_training {#begin_training tag="method"}
+## Tagger.initialize {#initialize tag="method" new="3"}
 
-Initialize the component for training and return an
-[`Optimizer`](https://thinc.ai/docs/api-optimizers). `get_examples` should be a
-function that returns an iterable of [`Example`](/api/example) objects. The data
-examples are used to **initialize the model** of the component and can either be
-the full training data or a representative sample. Initialization includes
-validating the network,
+Initialize the component for training. `get_examples` should be a function that
+returns an iterable of [`Example`](/api/example) objects. The data examples are
+used to **initialize the model** of the component and can either be the full
+training data or a representative sample. Initialization includes validating the
+network,
 [inferring missing shapes](https://thinc.ai/docs/usage-models#validation) and
-setting up the label scheme based on the data.
+setting up the label scheme based on the data. This method is typically called
+by [`Language.initialize`](/api/language#initialize) and lets you customize
+arguments it receives via the
+[`[initialize.components]`](/api/data-formats#config-initialize) block in the
+config.
+
+<Infobox variant="warning" title="Changed in v3.0" id="begin_training">
+
+This method was previously called `begin_training`.
+
+</Infobox>
 
 > #### Example
 >
 > ```python
 > tagger = nlp.add_pipe("tagger")
-> optimizer = tagger.begin_training(lambda: [], pipeline=nlp.pipeline)
+> tagger.initialize(lambda: [], nlp=nlp)
+> ```
+>
+> ```ini
+> ### config.cfg
+> [initialize.components.tagger]
+>
+> [initialize.components.tagger.labels]
+> @readers = "spacy.read_labels.v1"
+> path = "corpus/labels/tagger.json
 > ```
 
-| Name           | Description                                                                                                                           |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_examples` | Function that returns gold-standard annotations in the form of [`Example`](/api/example) objects. ~~Callable[[], Iterable[Example]]~~ |
-| _keyword-only_ |                                                                                                                                       |
-| `pipeline`     | Optional list of pipeline components that this component is part of. ~~Optional[List[Tuple[str, Callable[[Doc], Doc]]]]~~             |
-| `sgd`          | An optimizer. Will be created via [`create_optimizer`](#create_optimizer) if not set. ~~Optional[Optimizer]~~                         |
-| **RETURNS**    | The optimizer. ~~Optimizer~~                                                                                                          |
+| Name           | Description                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_examples` | Function that returns gold-standard annotations in the form of [`Example`](/api/example) objects. ~~Callable[[], Iterable[Example]]~~                                                                                                                                                                                                                                                                      |
+| _keyword-only_ |                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `nlp`          | The current `nlp` object. Defaults to `None`. ~~Optional[Language]~~                                                                                                                                                                                                                                                                                                                                       |
+| `labels`       | The label information to add to the component, as provided by the [`label_data`](#label_data) property after initialization. To generate a reusable JSON file from your data, you should run the [`init labels`](/api/cli#init-labels) command. If no labels are provided, the `get_examples` callback is used to extract the labels from the data, which may be a lot slower. ~~Optional[Iterable[str]]~~ |
 
 ## Tagger.predict {#predict tag="method"}
 
@@ -183,14 +200,14 @@ Delegates to [`predict`](/api/tagger#predict) and
 >
 > ```python
 > tagger = nlp.add_pipe("tagger")
-> optimizer = nlp.begin_training()
+> optimizer = nlp.initialize()
 > losses = tagger.update(examples, sgd=optimizer)
 > ```
 
 | Name              | Description                                                                                                                        |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `examples`        | A batch of [`Example`](/api/example) objects to learn from. ~~Iterable[Example]~~                                                  |
-| _keyword-only_    |                                                                                                                                    |  |
+| _keyword-only_    |                                                                                                                                    |
 | `drop`            | The dropout rate. ~~float~~                                                                                                        |
 | `set_annotations` | Whether or not to update the `Example` objects with the predictions, delegating to [`set_annotations`](#set_annotations). ~~bool~~ |
 | `sgd`             | An optimizer. Will be created via [`create_optimizer`](#create_optimizer) if not set. ~~Optional[Optimizer]~~                      |
@@ -214,7 +231,7 @@ the "catastrophic forgetting" problem. This feature is experimental.
 | Name           | Description                                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `examples`     | A batch of [`Example`](/api/example) objects to learn from. ~~Iterable[Example]~~                                        |
-| _keyword-only_ |                                                                                                                          |  |
+| _keyword-only_ |                                                                                                                          |
 | `drop`         | The dropout rate. ~~float~~                                                                                              |
 | `sgd`          | An optimizer. Will be created via [`create_optimizer`](#create_optimizer) if not set. ~~Optional[Optimizer]~~            |
 | `losses`       | Optional record of the loss during training. Updated using the component name as the key. ~~Optional[Dict[str, float]]~~ |
@@ -249,10 +266,10 @@ Score a batch of examples.
 > scores = tagger.score(examples)
 > ```
 
-| Name        | Description                                                                                                                                               |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `examples`  | The examples to score. ~~Iterable[Example]~~                                                                                                              |
-| **RETURNS** | The scores, produced by [`Scorer.score_token_attr`](/api/scorer#score_token_attr) for the attributes `"pos"`, `"tag"` and `"lemma"`. ~~Dict[str, float]~~ |
+| Name        | Description                                                                                                                       |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `examples`  | The examples to score. ~~Iterable[Example]~~                                                                                      |
+| **RETURNS** | The scores, produced by [`Scorer.score_token_attr`](/api/scorer#score_token_attr) for the attribute `"tag"`. ~~Dict[str, float]~~ |
 
 ## Tagger.create_optimizer {#create_optimizer tag="method"}
 
@@ -288,7 +305,13 @@ context, the original parameters are restored.
 
 ## Tagger.add_label {#add_label tag="method"}
 
-Add a new label to the pipe.
+Add a new label to the pipe. Raises an error if the output dimension is already
+set, or if the model has already been fully [initialized](#initialize). Note
+that you don't have to call this method if you provide a **representative data
+sample** to the [`initialize`](#initialize) method. In this case, all labels
+found in the sample will be automatically added to the model, and the output
+dimension will be [inferred](/usage/layers-architectures#thinc-shape-inference)
+automatically.
 
 > #### Example
 >
@@ -387,6 +410,24 @@ The labels currently added to the component.
 | Name        | Description                                            |
 | ----------- | ------------------------------------------------------ |
 | **RETURNS** | The labels added to the component. ~~Tuple[str, ...]~~ |
+
+## Tagger.label_data {#label_data tag="property" new="3"}
+
+The labels currently added to the component and their internal meta information.
+This is the data generated by [`init labels`](/api/cli#init-labels) and used by
+[`Tagger.initialize`](/api/tagger#initialize) to initialize the model with a
+pre-defined label set.
+
+> #### Example
+>
+> ```python
+> labels = tagger.label_data
+> tagger.initialize(lambda: [], nlp=nlp, labels=labels)
+> ```
+
+| Name        | Description                                                |
+| ----------- | ---------------------------------------------------------- |
+| **RETURNS** | The label data added to the component. ~~Tuple[str, ...]~~ |
 
 ## Serialization fields {#serialization-fields}
 

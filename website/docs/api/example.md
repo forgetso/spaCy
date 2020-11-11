@@ -2,7 +2,7 @@
 title: Example
 teaser: A training instance
 tag: class
-source: spacy/gold/example.pyx
+source: spacy/training/example.pyx
 new: 3.0
 ---
 
@@ -22,7 +22,7 @@ both documents.
 >
 > ```python
 > from spacy.tokens import Doc
-> from spacy.gold import Example
+> from spacy.training import Example
 >
 > words = ["hello", "world", "!"]
 > spaces = [True, False, False]
@@ -33,8 +33,8 @@ both documents.
 
 | Name           | Description                                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `predicted`    | The document containing (partial) predictions. Can not be `None`. ~~Doc~~                                                |
-| `reference`    | The document containing gold-standard annotations. Can not be `None`. ~~Doc~~                                            |
+| `predicted`    | The document containing (partial) predictions. Cannot be `None`. ~~Doc~~                                                |
+| `reference`    | The document containing gold-standard annotations. Cannot be `None`. ~~Doc~~                                            |
 | _keyword-only_ |                                                                                                                          |
 | `alignment`    | An object holding the alignment between the tokens of the `predicted` and `reference` documents. ~~Optional[Alignment]~~ |
 
@@ -48,7 +48,7 @@ see the [training format documentation](/api/data-formats#dict-input).
 >
 > ```python
 > from spacy.tokens import Doc
-> from spacy.gold import Example
+> from spacy.training import Example
 >
 > predicted = Doc(vocab, words=["Apply", "some", "sunscreen"])
 > token_ref = ["Apply", "some", "sun", "screen"]
@@ -58,8 +58,8 @@ see the [training format documentation](/api/data-formats#dict-input).
 
 | Name           | Description                                                               |
 | -------------- | ------------------------------------------------------------------------- |
-| `predicted`    | The document containing (partial) predictions. Can not be `None`. ~~Doc~~ |
-| `example_dict` | `Dict[str, obj]`                                                          | The gold-standard annotations as a dictionary. Can not be `None`. ~~Dict[str, Any]~~ |
+| `predicted`    | The document containing (partial) predictions. Cannot be `None`. ~~Doc~~ |
+| `example_dict` | `Dict[str, obj]`                                                          | The gold-standard annotations as a dictionary. Cannot be `None`. ~~Dict[str, Any]~~ |
 | **RETURNS**    | The newly constructed object. ~~Example~~                                 |
 
 ## Example.text {#text tag="property"}
@@ -301,7 +301,7 @@ tokenizations add up to the same string. For example, you'll be able to align
 > #### Example
 >
 > ```python
-> from spacy.gold import Alignment
+> from spacy.training import Alignment
 >
 > bert_tokens = ["obama", "'", "s", "podcast"]
 > spacy_tokens = ["obama", "'s", "podcast"]

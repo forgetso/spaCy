@@ -57,10 +57,12 @@ Find all token sequences matching the supplied patterns on the `Doc`.
 > matches = matcher(doc)
 > ```
 
-| Name        | Description                         |
-| ----------- | ----------------------------------- |
-| `doc`       | The document to match over. ~~Doc~~ |
-| **RETURNS** | list                                | A list of `(match_id, start, end)` tuples, describing the matches. A match tuple describes a span `doc[start:end]`. The `match_id` is the ID of the added match pattern. ~~List[Tuple[int, int, int]]~~ |
+| Name                                  | Description                                                                                                                                                                                                                                                                                              |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `doc`                                 | The document to match over. ~~Doc~~                                                                                                                                                                                                                                                                      |
+| _keyword-only_                        |                                                                                                                                                                                                                                                                                                          |
+| `as_spans` <Tag variant="new">3</Tag> | Instead of tuples, return a list of [`Span`](/api/span) objects of the matches, with the `match_id` assigned as the span label. Defaults to `False`. ~~bool~~                                                                                                                                            |
+| **RETURNS**                           | A list of `(match_id, start, end)` tuples, describing the matches. A match tuple describes a span `doc[start:end`]. The `match_id` is the ID of the added match pattern. If `as_spans` is set to `True`, a list of `Span` objects is returned instead. ~~Union[List[Tuple[int, int, int]], List[Span]]~~ |
 
 <Infobox title="Note on retrieving the string representation of the match_id" variant="warning">
 
@@ -73,27 +75,6 @@ match_id_string = nlp.vocab.strings[match_id]
 ```
 
 </Infobox>
-
-## PhraseMatcher.pipe {#pipe tag="method"}
-
-Match a stream of documents, yielding them in turn.
-
-> #### Example
->
-> ```python
->   from spacy.matcher import PhraseMatcher
->   matcher = PhraseMatcher(nlp.vocab)
->   for doc in matcher.pipe(docs, batch_size=50):
->       pass
-> ```
-
-| Name                                          | Description                                                                                                                                                                                                                         |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs`                                        | A stream of documents. ~~Iterable[Doc]~~                                                                                                                                                                                            |
-| `batch_size`                                  | The number of documents to accumulate into a working set. ~~int~~                                                                                                                                                                   |
-| `return_matches` <Tag variant="new">2.1</Tag> | Yield the match lists along with the docs, making results `(doc, matches)` tuples. ~~bool~~                                                                                                                                         |
-| `as_tuples`                                   | Interpret the input stream as `(doc, context)` tuples, and yield `(result, context)` tuples out. If both `return_matches` and `as_tuples` are `True`, the output will be a sequence of `((doc, matches), context)` tuples. ~~bool~~ |
-| **YIELDS**                                    | Documents and optional matches or context in order. ~~Union[Doc, Tuple[Doc, Any], Tuple[Tuple[Doc, Any], Any]]~~                                                                                                                    |
 
 ## PhraseMatcher.\_\_len\_\_ {#len tag="method"}
 
@@ -169,9 +150,9 @@ patterns = [nlp("health care reform"), nlp("healthcare reform")]
 
 | Name           | Description                                                                                                                                                |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `match_id`     | str                                                                                                                                                        | An ID for the thing you're matching. ~~str~~ |
+| `match_id`     | An ID for the thing you're matching. ~~str~~ |                                                                                                                                                        | 
 | `docs`         | `Doc` objects of the phrases to match. ~~List[Doc]~~                                                                                                       |
-| _keyword-only_ |                                                                                                                                                            |  |
+| _keyword-only_ |                                                                                                                                                            |
 | `on_match`     | Callback function to act on matches. Takes the arguments `matcher`, `doc`, `i` and `matches`. ~~Optional[Callable[[Matcher, Doc, int, List[tuple], Any]]~~ |
 
 ## PhraseMatcher.remove {#remove tag="method" new="2.2"}

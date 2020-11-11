@@ -9,13 +9,14 @@ from .functions import merge_subtokens
 from ..language import Language
 from ._parser_internals import nonproj
 from ..scorer import Scorer
-from ..gold import validate_examples
+from ..training import validate_examples
 
 
 default_model_config = """
 [model]
 @architectures = "spacy.TransitionBasedParser.v1"
-nr_feature_tokens = 8
+state_type = "parser"
+extra_state_tokens = false
 hidden_width = 64
 maxout_pieces = 2
 
@@ -42,8 +43,14 @@ DEFAULT_PARSER_MODEL = Config().from_str(default_model_config)["model"]
         "min_action_freq": 30,
         "model": DEFAULT_PARSER_MODEL,
     },
-    scores=["dep_uas", "dep_las", "dep_las_per_type", "sents_p", "sents_r", "sents_f"],
-    default_score_weights={"dep_uas": 0.5, "dep_las": 0.5, "sents_f": 0.0},
+    default_score_weights={
+        "dep_uas": 0.5,
+        "dep_las": 0.5,
+        "dep_las_per_type": None,
+        "sents_p": None,
+        "sents_r": None,
+        "sents_f": 0.0,
+    },
 )
 def make_parser(
     nlp: Language,
@@ -105,7 +112,7 @@ def make_parser(
 cdef class DependencyParser(Parser):
     """Pipeline component for dependency parsing.
 
-    DOCS: https://spacy.io/api/dependencyparser
+    DOCS: https://nightly.spacy.io/api/dependencyparser
     """
     TransitionSystem = ArcEager
 
@@ -119,13 +126,13 @@ cdef class DependencyParser(Parser):
     def add_multitask_objective(self, mt_component):
         self._multitasks.append(mt_component)
 
-    def init_multitask_objectives(self, get_examples, pipeline, sgd=None, **cfg):
+    def init_multitask_objectives(self, get_examples, nlp=None, **cfg):
         # TODO: transfer self.model.get_ref("tok2vec") to the multitask's model ?
         for labeller in self._multitasks:
             labeller.model.set_dim("nO", len(self.labels))
             if labeller.model.has_ref("output_layer"):
                 labeller.model.get_ref("output_layer").set_dim("nO", len(self.labels))
-            labeller.begin_training(get_examples, pipeline=pipeline, sgd=sgd)
+            labeller.initialize(get_examples, nlp=nlp)
 
     @property
     def labels(self):
@@ -146,17 +153,20 @@ cdef class DependencyParser(Parser):
         RETURNS (Dict[str, Any]): The scores, produced by Scorer.score_spans
             and Scorer.score_deps.
 
-        DOCS: https://spacy.io/api/dependencyparser#score
+        DOCS: https://nightly.spacy.io/api/dependencyparser#score
         """
+        def has_sents(doc):
+            return doc.has_annotation("SENT_START")
+
         validate_examples(examples, "DependencyParser.score")
         def dep_getter(token, attr):
             dep = getattr(token, attr)
             dep = token.vocab.strings.as_string(dep).lower()
             return dep
         results = {}
-        results.update(Scorer.score_spans(examples, "sents", **kwargs))
+        results.update(Scorer.score_spans(examples, "sents", has_annotation=has_sents, **kwargs))
         kwargs.setdefault("getter", dep_getter)
-        kwargs.setdefault("ignore_label", ("p", "punct"))
+        kwargs.setdefault("ignore_labels", ("p", "punct"))
         results.update(Scorer.score_deps(examples, "dep", **kwargs))
         del results["sents_per_type"]
         return results

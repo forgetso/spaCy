@@ -7,9 +7,9 @@ source: spacy/language.py
 
 Usually you'll load this once per process as `nlp` and pass the instance around
 your application. The `Language` class is created when you call
-[`spacy.load()`](/api/top-level#spacy.load) and contains the shared vocabulary
-and [language data](/usage/adding-languages), optional model data loaded from a
-[model package](/models) or a path, and a
+[`spacy.load`](/api/top-level#spacy.load) and contains the shared vocabulary and
+[language data](/usage/linguistic-features#language-data), optional binary
+weights, e.g. provided by a [trained pipeline](/models), and the
 [processing pipeline](/usage/processing-pipelines) containing components like
 the tagger or parser that are called on a document in order. You can also add
 your own processing pipeline components that take a `Doc` object, modify it and
@@ -17,7 +17,10 @@ return it.
 
 ## Language.\_\_init\_\_ {#init tag="method"}
 
-Initialize a `Language` object.
+Initialize a `Language` object. Note that the `meta` is only used for meta
+information in [`Language.meta`](/api/language#meta) and not to configure the
+`nlp` object or to override the config. To initialize from a config, use
+[`Language.from_config`](/api/language#from_config) instead.
 
 > #### Example
 >
@@ -37,16 +40,17 @@ Initialize a `Language` object.
 | `vocab`            | A `Vocab` object. If `True`, a vocab is created using the default language data settings. ~~Vocab~~                      |
 | _keyword-only_     |                                                                                                                          |
 | `max_length`       | Maximum number of characters allowed in a single text. Defaults to `10 ** 6`. ~~int~~                                    |
-| `meta`             | Custom meta data for the `Language` class. Is written to by models to add model meta data. ~~dict~~                      |
+| `meta`             | [Meta data](/api/data-formats#meta) overrides. ~~Dict[str, Any]~~                                                        |
 | `create_tokenizer` | Optional function that receives the `nlp` object and returns a tokenizer. ~~Callable[[Language], Callable[[str], Doc]]~~ |
 
 ## Language.from_config {#from_config tag="classmethod" new="3"}
 
 Create a `Language` object from a loaded config. Will set up the tokenizer and
-language data, add pipeline components based on the pipeline and components
-define in the config and validate the results. If no config is provided, the
-default config of the given language is used. This is also how spaCy loads a
-model under the hood based on its [`config.cfg`](/api/data-formats#config).
+language data, add pipeline components based on the pipeline and add pipeline
+components based on the definitions specified in the config. If no config is
+provided, the default config of the given language is used. This is also how
+spaCy loads a model under the hood based on its
+[`config.cfg`](/api/data-formats#config).
 
 > #### Example
 >
@@ -58,14 +62,17 @@ model under the hood based on its [`config.cfg`](/api/data-formats#config).
 > nlp = Language.from_config(config)
 > ```
 
-| Name           | Description                                                                                                                                      |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `config`       | The loaded config. ~~Union[Dict[str, Any], Config]~~                                                                                             |
-| _keyword-only_ |                                                                                                                                                  |
-| `disable`      | List of pipeline component names to disable. ~~Iterable[str]~~                                                                                   |
-| `auto_fill`    | Whether to automatically fill in missing values in the config, based on defaults and function argument annotations. Defaults to `True`. ~~bool~~ |
-| `validate`     | Whether to validate the component config and arguments against the types expected by the factory. Defaults to `True`. ~~bool~~                   |
-| **RETURNS**    | The initialized object. ~~Language~~                                                                                                             |
+| Name           | Description                                                                                                                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `config`       | The loaded config. ~~Union[Dict[str, Any], Config]~~                                                                                                                                                                                             |
+| _keyword-only_ |                                                                                                                                                                                                                                                  |
+| `vocab`        | A `Vocab` object. If `True`, a vocab is created using the default language data settings. ~~Vocab~~                                                                                                                                              |
+| `disable`      | Names of pipeline components to [disable](/usage/processing-pipelines#disabling). Disabled pipes will be loaded but they won't be run unless you explicitly enable them by calling [`nlp.enable_pipe`](/api/language#enable_pipe). ~~List[str]~~ |
+| `exclude`      | Names of pipeline components to [exclude](/usage/processing-pipelines#disabling). Excluded components won't be loaded. ~~List[str]~~                                                                                                             |
+| `meta`         | [Meta data](/api/data-formats#meta) overrides. ~~Dict[str, Any]~~                                                                                                                                                                                |
+| `auto_fill`    | Whether to automatically fill in missing values in the config, based on defaults and function argument annotations. Defaults to `True`. ~~bool~~                                                                                                 |
+| `validate`     | Whether to validate the component config and arguments against the types expected by the factory. Defaults to `True`. ~~bool~~                                                                                                                   |
+| **RETURNS**    | The initialized object. ~~Language~~                                                                                                                                                                                                             |
 
 ## Language.component {#component tag="classmethod" new="3"}
 
@@ -101,7 +108,7 @@ decorator. For more details and examples, see the
 | `assigns`      | `Doc` or `Token` attributes assigned by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~ |
 | `requires`     | `Doc` or `Token` attributes required by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~ |
 | `retokenizes`  | Whether the component changes tokenization. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~bool~~                                               |
-| `func`         | Optional function if not used a a decorator. ~~Optional[Callable[[Doc], Doc]]~~                                                                                    |
+| `func`         | Optional function if not used as a decorator. ~~Optional[Callable[[Doc], Doc]]~~                                                                                   |
 
 ## Language.factory {#factory tag="classmethod"}
 
@@ -139,17 +146,16 @@ examples, see the
 > )
 > ```
 
-| Name                    | Description                                                                                                                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `name`                  | The name of the component factory. ~~str~~                                                                                                                                                                                                       |
-| _keyword-only_          |                                                                                                                                                                                                                                                  |
-| `default_config`        | The default config, describing the default values of the factory arguments. ~~Dict[str, Any]~~                                                                                                                                                   |
-| `assigns`               | `Doc` or `Token` attributes assigned by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                               |
-| `requires`              | `Doc` or `Token` attributes required by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                               |
-| `retokenizes`           | Whether the component changes tokenization. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~bool~~                                                                                                                             |
-| `scores`                | All scores set by the components if it's trainable, e.g. `["ents_f", "ents_r", "ents_p"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                     |
-| `default_score_weights` | The scores to report during training, and their default weight towards the final score used to select the best model. Weights should sum to `1.0` per component and will be combined and normalized for the whole pipeline. ~~Dict[str, float]~~ |
-| `func`                  | Optional function if not used a a decorator. ~~Optional[Callable[[...], Callable[[Doc], Doc]]]~~                                                                                                                                                 |
+| Name                    | Description                                                                                                                                                                                                                                                                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                  | The name of the component factory. ~~str~~                                                                                                                                                                                                                                                                                         |
+| _keyword-only_          |                                                                                                                                                                                                                                                                                                                                    |
+| `default_config`        | The default config, describing the default values of the factory arguments. ~~Dict[str, Any]~~                                                                                                                                                                                                                                     |
+| `assigns`               | `Doc` or `Token` attributes assigned by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                                                                                                                 |
+| `requires`              | `Doc` or `Token` attributes required by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                                                                                                                 |
+| `retokenizes`           | Whether the component changes tokenization. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~bool~~                                                                                                                                                                                                               |
+| `default_score_weights` | The scores to report during training, and their default weight towards the final score used to select the best model. Weights should sum to `1.0` per component and will be combined and normalized for the whole pipeline. If a weight is set to `None`, the score will not be logged or weighted. ~~Dict[str, Optional[float]]~~ |
+| `func`                  | Optional function if not used as a decorator. ~~Optional[Callable[[...], Callable[[Doc], Doc]]]~~                                                                                                                                                                                                                                  |
 
 ## Language.\_\_call\_\_ {#call tag="method"}
 
@@ -181,7 +187,7 @@ more efficient than processing texts one-by-one.
 > ```python
 > texts = ["One document.", "...", "Lots of documents"]
 > for doc in nlp.pipe(texts, batch_size=50):
->     assert doc.is_parsed
+>     assert doc.has_annotation("DEP")
 > ```
 
 | Name                                       | Description                                                                                                                                                         |
@@ -196,23 +202,40 @@ more efficient than processing texts one-by-one.
 | `n_process` <Tag variant="new">2.2.2</Tag> | Number of processors to use. Defaults to `1`. ~~int~~                                                                                                               |
 | **YIELDS**                                 | Documents in the order of the original text. ~~Doc~~                                                                                                                |
 
-## Language.begin_training {#begin_training tag="method"}
+## Language.initialize {#initialize tag="method" new="3"}
 
 Initialize the pipeline for training and return an
-[`Optimizer`](https://thinc.ai/docs/api-optimizers). `get_examples` should be a
-function that returns an iterable of [`Example`](/api/example) objects. The data
-examples can either be the full training data or a representative sample. They
-are used to **initialize the models** of trainable pipeline components and are
-passed each component's [`begin_training`](/api/pipe#begin_training) method, if
-available. Initialization includes validating the network,
-[inferring missing shapes](https://thinc.ai/docs/usage-models#validation) and
-setting up the label scheme based on the data.
+[`Optimizer`](https://thinc.ai/docs/api-optimizers). Under the hood, it uses the
+settings defined in the [`[initialize]`](/api/data-formats#config-initialize)
+config block to set up the vocabulary, load in vectors and tok2vec weights and
+pass optional arguments to the `initialize` methods implemented by pipeline
+components or the tokenizer. This method is typically called automatically when
+you run [`spacy train`](/api/cli#train). See the usage guide on the
+[config lifecycle](/usage/training#config-lifecycle) and
+[initialization](/usage/training#initialization) for details.
 
-<Infobox variant="warning" title="Changed in v3.0">
+`get_examples` should be a function that returns an iterable of
+[`Example`](/api/example) objects. The data examples can either be the full
+training data or a representative sample. They are used to **initialize the
+models** of trainable pipeline components and are passed each component's
+[`initialize`](/api/pipe#initialize) method, if available. Initialization
+includes validating the network,
+[inferring missing shapes](/usage/layers-architectures#thinc-shape-inference)
+and setting up the label scheme based on the data.
 
-The `Language.update` method now takes a **function** that is called with no
-arguments and returns a sequence of [`Example`](/api/example) objects instead of
-tuples of `Doc` and `GoldParse` objects.
+If no `get_examples` function is provided when calling `nlp.initialize`, the
+pipeline components will be initialized with generic data. In this case, it is
+crucial that the output dimension of each component has already been defined
+either in the [config](/usage/training#config), or by calling
+[`pipe.add_label`](/api/pipe#add_label) for each possible output label (e.g. for
+the tagger or textcat).
+
+<Infobox variant="warning" title="Changed in v3.0" id="begin_training">
+
+This method was previously called `begin_training`. It now also takes a
+**function** that is called with no arguments and returns a sequence of
+[`Example`](/api/example) objects instead of tuples of `Doc` and `GoldParse`
+objects.
 
 </Infobox>
 
@@ -220,7 +243,7 @@ tuples of `Doc` and `GoldParse` objects.
 >
 > ```python
 > get_examples = lambda: examples
-> optimizer = nlp.begin_training(get_examples)
+> optimizer = nlp.initialize(get_examples)
 > ```
 
 | Name           | Description                                                                                                                                              |
@@ -232,7 +255,7 @@ tuples of `Doc` and `GoldParse` objects.
 
 ## Language.resume_training {#resume_training tag="method,experimental" new="3"}
 
-Continue training a pretrained model. Create and return an optimizer, and
+Continue training a trained pipeline. Create and return an optimizer, and
 initialize "rehearsal" for any pipeline component that has a `rehearse` method.
 Rehearsal is used to prevent models from "forgetting" their initialized
 "knowledge". To perform rehearsal, collect samples of text you want the models
@@ -314,7 +337,7 @@ the "catastrophic forgetting" problem. This feature is experimental.
 
 ## Language.evaluate {#evaluate tag="method"}
 
-Evaluate a model's pipeline components.
+Evaluate a pipeline's components.
 
 <Infobox variant="warning" title="Changed in v3.0">
 
@@ -357,35 +380,6 @@ their original weights after the block.
 | -------- | ------------------------------------------------------ |
 | `params` | A dictionary of parameters keyed by model ID. ~~dict~~ |
 
-## Language.create_pipe {#create_pipe tag="method" new="2"}
-
-Create a pipeline component from a factory.
-
-<Infobox title="Changed in v3.0" variant="warning">
-
-As of v3.0, the [`Language.add_pipe`](/api/language#add_pipe) method also takes
-the string name of the factory, creates the component, adds it to the pipeline
-and returns it. The `Language.create_pipe` method is now mostly used internally.
-To create a component and add it to the pipeline, you should always use
-`Language.add_pipe`.
-
-</Infobox>
-
-> #### Example
->
-> ```python
-> parser = nlp.create_pipe("parser")
-> ```
-
-| Name                                  | Description                                                                                                                                                                 |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `factory_name`                        | Name of the registered component factory. ~~str~~                                                                                                                           |
-| `name`                                | Optional unique name of pipeline component instance. If not set, the factory name is used. An error is raised if the name already exists in the pipeline. ~~Optional[str]~~ |
-| _keyword-only_                        |                                                                                                                                                                             |
-| `config` <Tag variant="new">3</Tag>   | Optional config parameters to use for this component. Will be merged with the `default_config` specified by the component factory. ~~Optional[Dict[str, Any]]~~             |
-| `validate` <Tag variant="new">3</Tag> | Whether to validate the component config and arguments against the types expected by the factory. Defaults to `True`. ~~bool~~                                              |
-| **RETURNS**                           | The pipeline component. ~~Callable[[Doc], Doc]~~                                                                                                                            |
-
 ## Language.add_pipe {#add_pipe tag="method" new="2"}
 
 Add a component to the processing pipeline. Expects a name that maps to a
@@ -415,24 +409,53 @@ component, adds it to the pipeline and returns it.
 > nlp.add_pipe("component", before="ner")
 > component = nlp.add_pipe("component", name="custom_name", last=True)
 >
-> # Add component from source model
+> # Add component from source pipeline
 > source_nlp = spacy.load("en_core_web_sm")
 > nlp.add_pipe("ner", source=source_nlp)
 > ```
 
-| Name                                  | Description                                                                                                                                                                                                                                                                     |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `factory_name`                        | Name of the registered component factory. ~~str~~                                                                                                                                                                                                                               |
-| `name`                                | Optional unique name of pipeline component instance. If not set, the factory name is used. An error is raised if the name already exists in the pipeline. ~~Optional[str]~~                                                                                                     |
-| _keyword-only_                        |                                                                                                                                                                                                                                                                                 |
-| `before`                              | Component name or index to insert component directly before. ~~Optional[Union[str, int]]~~                                                                                                                                                                                      |
-| `after`                               | Component name or index to insert component directly after. ~~Optional[Union[str, int]]~~                                                                                                                                                                                       |
-| `first`                               | Insert component first / not first in the pipeline. ~~Optional[bool]~~                                                                                                                                                                                                          |
-| `last`                                | Insert component last / not last in the pipeline. ~~Optional[bool]~~                                                                                                                                                                                                            |
-| `config` <Tag variant="new">3</Tag>   | Optional config parameters to use for this component. Will be merged with the `default_config` specified by the component factory. ~~Optional[Dict[str, Any]]~~                                                                                                                 |
-| `source` <Tag variant="new">3</Tag>   | Optional source model to copy component from. If a source is provided, the `factory_name` is interpreted as the name of the component in the source pipeline. Make sure that the vocab, vectors and settings of the source model match the target model. ~~Optional[Language]~~ |
-| `validate` <Tag variant="new">3</Tag> | Whether to validate the component config and arguments against the types expected by the factory. Defaults to `True`. ~~bool~~                                                                                                                                                  |
-| **RETURNS**                           | The pipeline component. ~~Callable[[Doc], Doc]~~                                                                                                                                                                                                                                |
+| Name                                  | Description                                                                                                                                                                                                                                                                              |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `factory_name`                        | Name of the registered component factory. ~~str~~                                                                                                                                                                                                                                        |
+| `name`                                | Optional unique name of pipeline component instance. If not set, the factory name is used. An error is raised if the name already exists in the pipeline. ~~Optional[str]~~                                                                                                              |
+| _keyword-only_                        |                                                                                                                                                                                                                                                                                          |
+| `before`                              | Component name or index to insert component directly before. ~~Optional[Union[str, int]]~~                                                                                                                                                                                               |
+| `after`                               | Component name or index to insert component directly after. ~~Optional[Union[str, int]]~~                                                                                                                                                                                                |
+| `first`                               | Insert component first / not first in the pipeline. ~~Optional[bool]~~                                                                                                                                                                                                                   |
+| `last`                                | Insert component last / not last in the pipeline. ~~Optional[bool]~~                                                                                                                                                                                                                     |
+| `config` <Tag variant="new">3</Tag>   | Optional config parameters to use for this component. Will be merged with the `default_config` specified by the component factory. ~~Optional[Dict[str, Any]]~~                                                                                                                          |
+| `source` <Tag variant="new">3</Tag>   | Optional source pipeline to copy component from. If a source is provided, the `factory_name` is interpreted as the name of the component in the source pipeline. Make sure that the vocab, vectors and settings of the source pipeline match the target pipeline. ~~Optional[Language]~~ |
+| `validate` <Tag variant="new">3</Tag> | Whether to validate the component config and arguments against the types expected by the factory. Defaults to `True`. ~~bool~~                                                                                                                                                           |
+| **RETURNS**                           | The pipeline component. ~~Callable[[Doc], Doc]~~                                                                                                                                                                                                                                         |
+
+## Language.create_pipe {#create_pipe tag="method" new="2"}
+
+Create a pipeline component from a factory.
+
+<Infobox title="Changed in v3.0" variant="warning">
+
+As of v3.0, the [`Language.add_pipe`](/api/language#add_pipe) method also takes
+the string name of the factory, creates the component, adds it to the pipeline
+and returns it. The `Language.create_pipe` method is now mostly used internally.
+To create a component and add it to the pipeline, you should always use
+`Language.add_pipe`.
+
+</Infobox>
+
+> #### Example
+>
+> ```python
+> parser = nlp.create_pipe("parser")
+> ```
+
+| Name                                  | Description                                                                                                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `factory_name`                        | Name of the registered component factory. ~~str~~                                                                                                                           |
+| `name`                                | Optional unique name of pipeline component instance. If not set, the factory name is used. An error is raised if the name already exists in the pipeline. ~~Optional[str]~~ |
+| _keyword-only_                        |                                                                                                                                                                             |
+| `config` <Tag variant="new">3</Tag>   | Optional config parameters to use for this component. Will be merged with the `default_config` specified by the component factory. ~~Optional[Dict[str, Any]]~~             |
+| `validate` <Tag variant="new">3</Tag> | Whether to validate the component config and arguments against the types expected by the factory. Defaults to `True`. ~~bool~~                                              |
+| **RETURNS**                           | The pipeline component. ~~Callable[[Doc], Doc]~~                                                                                                                            |
 
 ## Language.has_factory {#has_factory tag="classmethod" new="3"}
 
@@ -501,7 +524,7 @@ Get a pipeline component for a given component name.
 
 ## Language.replace_pipe {#replace_pipe tag="method" new="2"}
 
-Replace a component in the pipeline.
+Replace a component in the pipeline and return the new component.
 
 <Infobox title="Changed in v3.0" variant="warning">
 
@@ -515,7 +538,7 @@ and instead expects the **name of a component factory** registered using
 > #### Example
 >
 > ```python
-> nlp.replace_pipe("parser", my_custom_parser)
+> new_parser = nlp.replace_pipe("parser", "my_custom_parser")
 > ```
 
 | Name                                  | Description                                                                                                                                                        |
@@ -525,6 +548,7 @@ and instead expects the **name of a component factory** registered using
 | _keyword-only_                        |                                                                                                                                                                    |
 | `config` <Tag variant="new">3</Tag>   | Optional config parameters to use for the new component. Will be merged with the `default_config` specified by the component factory. ~~Optional[Dict[str, Any]]~~ |
 | `validate` <Tag variant="new">3</Tag> | Whether to validate the component config and arguments against the types expected by the factory. Defaults to `True`. ~~bool~~                                     |
+| **RETURNS**                           | The new pipeline component. ~~Callable[[Doc], Doc]~~                                                                                                               |
 
 ## Language.rename_pipe {#rename_pipe tag="method" new="2"}
 
@@ -561,6 +585,54 @@ component function.
 | `name`      | Name of the component to remove. ~~str~~                                                   |
 | **RETURNS** | A `(name, component)` tuple of the removed component. ~~Tuple[str, Callable[[Doc], Doc]]~~ |
 
+## Language.disable_pipe {#disable_pipe tag="method" new="3"}
+
+Temporarily disable a pipeline component so it's not run as part of the
+pipeline. Disabled components are listed in
+[`nlp.disabled`](/api/language#attributes) and included in
+[`nlp.components`](/api/language#attributes), but not in
+[`nlp.pipeline`](/api/language#pipeline), so they're not run when you process a
+`Doc` with the `nlp` object. If the component is already disabled, this method
+does nothing.
+
+> #### Example
+>
+> ```python
+> nlp.add_pipe("ner")
+> nlp.add_pipe("textcat")
+> assert nlp.pipe_names == ["ner", "textcat"]
+> nlp.disable_pipe("ner")
+> assert nlp.pipe_names == ["textcat"]
+> assert nlp.component_names == ["ner", "textcat"]
+> assert nlp.disabled == ["ner"]
+> ```
+
+| Name   | Description                               |
+| ------ | ----------------------------------------- |
+| `name` | Name of the component to disable. ~~str~~ |
+
+## Language.enable_pipe {#enable_pipe tag="method" new="3"}
+
+Enable a previously disabled component (e.g. via
+[`Language.disable_pipes`](/api/language#disable_pipes)) so it's run as part of
+the pipeline, [`nlp.pipeline`](/api/language#pipeline). If the component is
+already enabled, this method does nothing.
+
+> #### Example
+>
+> ```python
+> nlp.disable_pipe("ner")
+> assert "ner" in nlp.disabled
+> assert not "ner" in nlp.pipe_names
+> nlp.enable_pipe("ner")
+> assert not "ner" in nlp.disabled
+> assert "ner" in nlp.pipe_names
+> ```
+
+| Name   | Description                              |
+| ------ | ---------------------------------------- |
+| `name` | Name of the component to enable. ~~str~~ |
+
 ## Language.select_pipes {#select_pipes tag="contextmanager, method" new="3"}
 
 Disable one or more pipeline components. If used as a context manager, the
@@ -568,19 +640,21 @@ pipeline will be restored to the initial state at the end of the block.
 Otherwise, a `DisabledPipes` object is returned, that has a `.restore()` method
 you can use to undo your changes. You can specify either `disable` (as a list or
 string), or `enable`. In the latter case, all components not in the `enable`
-list, will be disabled.
+list will be disabled. Under the hood, this method calls into
+[`disable_pipe`](/api/language#disable_pipe) and
+[`enable_pipe`](/api/language#enable_pipe).
 
 > #### Example
 >
 > ```python
 > with nlp.select_pipes(disable=["tagger", "parser"]):
->    nlp.begin_training()
+>    nlp.initialize()
 >
 > with nlp.select_pipes(enable="ner"):
->     nlp.begin_training()
+>     nlp.initialize()
 >
 > disabled = nlp.select_pipes(disable=["tagger", "parser"])
-> nlp.begin_training()
+> nlp.initialize()
 > disabled.restore()
 > ```
 
@@ -599,7 +673,7 @@ As of spaCy v3.0, the `disable_pipes` method has been renamed to `select_pipes`:
 | -------------- | ------------------------------------------------------------------------------------------------------ |
 | _keyword-only_ |                                                                                                        |
 | `disable`      | Name(s) of pipeline components to disable. ~~Optional[Union[str, Iterable[str]]]~~                     |
-| `enable`       | Names(s) of pipeline components that will not be disabled. ~~Optional[Union[str, Iterable[str]]]~~     |
+| `enable`       | Name(s) of pipeline components that will not be disabled. ~~Optional[Union[str, Iterable[str]]]~~      |
 | **RETURNS**    | The disabled pipes that can be restored by calling the object's `.restore()` method. ~~DisabledPipes~~ |
 
 ## Language.get_factory_meta {#get_factory_meta tag="classmethod" new="3"}
@@ -712,15 +786,13 @@ doesn't, the pipeline analysis won't catch that.
 ### Pretty
 ============================= Pipeline Overview =============================
 
-#   Component       Assigns           Requires         Scores      Retokenizes
--   -------------   ---------------   --------------   ---------   -----------
-0   tagger          token.tag                          tag_acc     False
-                                                       pos_acc
-                                                       lemma_acc
+#   Component       Assigns           Requires         Scores        Retokenizes
+-   -------------   ---------------   --------------   -----------   -----------
+0   tagger          token.tag                          tag_acc       False
 
-1   entity_linker   token.ent_kb_id   doc.ents                     False
-                                      doc.sents
-                                      token.ent_iob
+1   entity_linker   token.ent_kb_id   doc.ents         nel_micro_f   False
+                                      doc.sents        nel_micro_r
+                                      token.ent_iob    nel_micro_p
                                       token.ent_type
 
 
@@ -740,9 +812,19 @@ token.ent_iob, token.ent_type
 
 ## Language.meta {#meta tag="property"}
 
-Custom meta data for the Language class. If a model is loaded, contains meta
-data of the model. The `Language.meta` is also what's serialized as the
-[`meta.json`](/api/data-formats#meta) when you save an `nlp` object to disk.
+Meta data for the `Language` class, including name, version, data sources,
+license, author information and more. If a trained pipeline is loaded, this
+contains meta data of the pipeline. The `Language.meta` is also what's
+serialized as the `meta.json` when you save an `nlp` object to disk. See the
+[meta data format](/api/data-formats#meta) for more details.
+
+<Infobox variant="warning" title="Changed in v3.0">
+
+As of v3.0, the meta only contains **meta information** about the pipeline and
+isn't used to construct the language class and pipeline components. This
+information is expressed in the [`config.cfg`](/api/data-formats#config).
+
+</Infobox>
 
 > #### Example
 >
@@ -777,13 +859,15 @@ subclass of the built-in `dict`. It supports the additional methods `to_disk`
 
 ## Language.to_disk {#to_disk tag="method" new="2"}
 
-Save the current state to a directory. If a model is loaded, this will **include
-the model**.
+Save the current state to a directory. Under the hood, this method delegates to
+the `to_disk` methods of the individual pipeline components, if available. This
+means that if a trained pipeline is loaded, all components and their weights
+will be saved to disk.
 
 > #### Example
 >
 > ```python
-> nlp.to_disk("/path/to/models")
+> nlp.to_disk("/path/to/pipeline")
 > ```
 
 | Name           | Description                                                                                                                                |
@@ -794,22 +878,28 @@ the model**.
 
 ## Language.from_disk {#from_disk tag="method" new="2"}
 
-Loads state from a directory. Modifies the object in place and returns it. If
-the saved `Language` object contains a model, the model will be loaded. Note
-that this method is commonly used via the subclasses like `English` or `German`
-to make language-specific functionality like the
-[lexical attribute getters](/usage/adding-languages#lex-attrs) available to the
-loaded object.
+Loads state from a directory, including all data that was saved with the
+`Language` object. Modifies the object in place and returns it.
+
+<Infobox variant="warning" title="Important note">
+
+Keep in mind that this method **only loads the serialized state** and doesn't
+set up the `nlp` object. This means that it requires the correct language class
+to be initialized and all pipeline components to be added to the pipeline. If
+you want to load a serialized pipeline from a directory, you should use
+[`spacy.load`](/api/top-level#spacy.load), which will set everything up for you.
+
+</Infobox>
 
 > #### Example
 >
 > ```python
 > from spacy.language import Language
-> nlp = Language().from_disk("/path/to/model")
+> nlp = Language().from_disk("/path/to/pipeline")
 >
-> # using language-specific subclass
+> # Using language-specific subclass
 > from spacy.lang.en import English
-> nlp = English().from_disk("/path/to/en_model")
+> nlp = English().from_disk("/path/to/pipeline")
 > ```
 
 | Name           | Description                                                                                                 |
@@ -839,7 +929,7 @@ Serialize the current state to a binary string.
 
 Load state from a binary string. Note that this method is commonly used via the
 subclasses like `English` or `German` to make language-specific functionality
-like the [lexical attribute getters](/usage/adding-languages#lex-attrs)
+like the [lexical attribute getters](/usage/linguistic-features#language-data)
 available to the loaded object.
 
 > #### Example
@@ -860,26 +950,29 @@ available to the loaded object.
 
 ## Attributes {#attributes}
 
-| Name                                          | Description                                                                                                                  |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `vocab`                                       | A container for the lexical types. ~~Vocab~~                                                                                 |
-| `tokenizer`                                   | The tokenizer. ~~Tokenizer~~                                                                                                 |
-| `make_doc`                                    | Callable that takes a string and returns a `Doc`. ~~Callable[[str], Doc]~~                                                   |
-| `pipeline`                                    | List of `(name, component)` tuples describing the current processing pipeline, in order. ~~List[str, Callable[[Doc], Doc]]~~ |
-| `pipe_names` <Tag variant="new">2</Tag>       | List of pipeline component names, in order. ~~List[str]~~                                                                    |
-| `pipe_labels` <Tag variant="new">2.2</Tag>    | List of labels set by the pipeline components, if available, keyed by component name. ~~Dict[str, List[str]]~~               |
-| `pipe_factories` <Tag variant="new">2.2</Tag> | Dictionary of pipeline component names, mapped to their factory names. ~~Dict[str, str]~~                                    |
-| `factories`                                   | All available factory functions, keyed by name. ~~Dict[str, Callable[[...], Callable[[Doc], Doc]]]~~                         |
-| `factory_names` <Tag variant="new">3</Tag>    | List of all available factory names. ~~List[str]~~                                                                           |
-| `path` <Tag variant="new">2</Tag>             | Path to the model data directory, if a model is loaded. Otherwise `None`. ~~Optional[Path]~~                                 |
+| Name                                          | Description                                                                                                                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vocab`                                       | A container for the lexical types. ~~Vocab~~                                                                                                   |
+| `tokenizer`                                   | The tokenizer. ~~Tokenizer~~                                                                                                                   |
+| `make_doc`                                    | Callable that takes a string and returns a `Doc`. ~~Callable[[str], Doc]~~                                                                     |
+| `pipeline`                                    | List of `(name, component)` tuples describing the current processing pipeline, in order. ~~List[Tuple[str, Callable[[Doc], Doc]]]~~            |
+| `pipe_names` <Tag variant="new">2</Tag>       | List of pipeline component names, in order. ~~List[str]~~                                                                                      |
+| `pipe_labels` <Tag variant="new">2.2</Tag>    | List of labels set by the pipeline components, if available, keyed by component name. ~~Dict[str, List[str]]~~                                 |
+| `pipe_factories` <Tag variant="new">2.2</Tag> | Dictionary of pipeline component names, mapped to their factory names. ~~Dict[str, str]~~                                                      |
+| `factories`                                   | All available factory functions, keyed by name. ~~Dict[str, Callable[[...], Callable[[Doc], Doc]]]~~                                           |
+| `factory_names` <Tag variant="new">3</Tag>    | List of all available factory names. ~~List[str]~~                                                                                             |
+| `components` <Tag variant="new">3</Tag>       | List of all available `(name, component)` tuples, including components that are currently disabled. ~~List[Tuple[str, Callable[[Doc], Doc]]]~~ |
+| `component_names` <Tag variant="new">3</Tag>  | List of all available component names, including components that are currently disabled. ~~List[str]~~                                         |
+| `disabled` <Tag variant="new">3</Tag>         | Names of components that are currently disabled and don't run as part of the pipeline. ~~List[str]~~                                           |
+| `path` <Tag variant="new">2</Tag>             | Path to the pipeline data directory, if a pipeline is loaded from a path or package. Otherwise `None`. ~~Optional[Path]~~                      |
 
 ## Class attributes {#class-attributes}
 
-| Name             | Description                                                                                                                                                                                                        |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Defaults`       | Settings, data and factory methods for creating the `nlp` object and processing pipeline. ~~Defaults~~                                                                                                             |
-| `lang`           | Two-letter language ID, i.e. [ISO code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes). ~~str~~                                                                                                            |
-| `default_config` | Base [config](/usage/training#config) to use for [Language.config](/api/language#config). Defaults to [`default_config.cfg`](https://github.com/explosion/spaCy/tree/develop/spacy/default_config.cfg). ~~Config~~ |
+| Name             | Description                                                                                                                                                                       |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Defaults`       | Settings, data and factory methods for creating the `nlp` object and processing pipeline. ~~Defaults~~                                                                            |
+| `lang`           | Two-letter language ID, i.e. [ISO code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes). ~~str~~                                                                           |
+| `default_config` | Base [config](/usage/training#config) to use for [Language.config](/api/language#config). Defaults to [`default_config.cfg`](%%GITHUB_SPACY/spacy/default_config.cfg). ~~Config~~ |
 
 ## Defaults {#defaults}
 
@@ -912,34 +1005,17 @@ customize the default language data:
 >    config = Config().from_str(DEFAULT_CONFIG)
 > ```
 
-| Name                              | Description                                                                                                                                                                                                                                                                         |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `stop_words`                      | List of stop words, used for `Token.is_stop`.<br />**Example:** [`stop_words.py`][stop_words.py] ~~Set[str]~~                                                                                                                                                                       |
-| `tokenizer_exceptions`            | Tokenizer exception rules, string mapped to list of token attributes.<br />**Example:** [`de/tokenizer_exceptions.py`][de/tokenizer_exceptions.py] ~~Dict[str, List[dict]]~~                                                                                                        |
-| `prefixes`, `suffixes`, `infixes` | Prefix, suffix and infix rules for the default tokenizer.<br />**Example:** [`puncutation.py`][punctuation.py] ~~Optional[List[Union[str, Pattern]]]~~                                                                                                                              |
-| `token_match`                     | Optional regex for matching strings that should never be split, overriding the infix rules.<br />**Example:** [`fr/tokenizer_exceptions.py`][fr/tokenizer_exceptions.py] ~~Optional[Pattern]~~                                                                                      |
-| `url_match`                       | Regular expression for matching URLs. Prefixes and suffixes are removed before applying the match.<br />**Example:** [`tokenizer_exceptions.py`][tokenizer_exceptions.py] ~~Optional[Pattern]~~                                                                                     |
-| `lex_attr_getters`                | Custom functions for setting lexical attributes on tokens, e.g. `like_num`.<br />**Example:** [`lex_attrs.py`][lex_attrs.py] ~~Dict[int, Callable[[str], Any]]~~                                                                                                                    |
-| `syntax_iterators`                | Functions that compute views of a `Doc` object based on its syntax. At the moment, only used for [noun chunks](/usage/linguistic-features#noun-chunks).<br />**Example:** [`syntax_iterators.py`][syntax_iterators.py]. ~~Dict[str, Callable[[Union[Doc, Span]], Iterator[Span]]]~~ |
-| `writing_system`                  | Information about the language's writing system, available via `Vocab.writing_system`. Defaults to: `{"direction": "ltr", "has_case": True, "has_letters": True}.`.<br />**Example:** [`zh/__init__.py`][zh/__init__.py] ~~Dict[str, Any]~~                                         |
-| `config`                          | Default [config](/usage/training#config) added to `nlp.config`. This can include references to custom tokenizers or lemmatizers.<br />**Example:** [`zh/__init__.py`][zh/__init__.py] ~~Config~~                                                                                    |
-
-[stop_words.py]:
-  https://github.com/explosion/spaCy/tree/master/spacy/lang/en/stop_words.py
-[tokenizer_exceptions.py]:
-  https://github.com/explosion/spaCy/tree/master/spacy/lang/tokenizer_exceptions.py
-[de/tokenizer_exceptions.py]:
-  https://github.com/explosion/spaCy/tree/master/spacy/lang/de/tokenizer_exceptions.py
-[fr/tokenizer_exceptions.py]:
-  https://github.com/explosion/spaCy/tree/master/spacy/lang/fr/tokenizer_exceptions.py
-[punctuation.py]:
-  https://github.com/explosion/spaCy/tree/master/spacy/lang/punctuation.py
-[lex_attrs.py]:
-  https://github.com/explosion/spaCy/tree/master/spacy/lang/en/lex_attrs.py
-[syntax_iterators.py]:
-  https://github.com/explosion/spaCy/tree/master/spacy/lang/en/syntax_iterators.py
-[zh/__init__.py]:
-  https://github.com/explosion/spaCy/tree/master/spacy/lang/zh/__init__.py
+| Name                              | Description                                                                                                                                                                                                                                                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stop_words`                      | List of stop words, used for `Token.is_stop`.<br />**Example:** [`stop_words.py`](%%GITHUB_SPACY/spacy/lang/en/stop_words.py) ~~Set[str]~~                                                                                                                                                                       |
+| `tokenizer_exceptions`            | Tokenizer exception rules, string mapped to list of token attributes.<br />**Example:** [`de/tokenizer_exceptions.py`](%%GITHUB_SPACY/spacy/lang/de/tokenizer_exceptions.py) ~~Dict[str, List[dict]]~~                                                                                                           |
+| `prefixes`, `suffixes`, `infixes` | Prefix, suffix and infix rules for the default tokenizer.<br />**Example:** [`puncutation.py`](%%GITHUB_SPACY/spacy/lang/punctuation.py) ~~Optional[List[Union[str, Pattern]]]~~                                                                                                                                 |
+| `token_match`                     | Optional regex for matching strings that should never be split, overriding the infix rules.<br />**Example:** [`fr/tokenizer_exceptions.py`](%%GITHUB_SPACY/spacy/lang/fr/tokenizer_exceptions.py) ~~Optional[Pattern]~~                                                                                         |
+| `url_match`                       | Regular expression for matching URLs. Prefixes and suffixes are removed before applying the match.<br />**Example:** [`tokenizer_exceptions.py`](%%GITHUB_SPACY/spacy/lang/tokenizer_exceptions.py) ~~Optional[Pattern]~~                                                                                        |
+| `lex_attr_getters`                | Custom functions for setting lexical attributes on tokens, e.g. `like_num`.<br />**Example:** [`lex_attrs.py`](%%GITHUB_SPACY/spacy/lang/en/lex_attrs.py) ~~Dict[int, Callable[[str], Any]]~~                                                                                                                    |
+| `syntax_iterators`                | Functions that compute views of a `Doc` object based on its syntax. At the moment, only used for [noun chunks](/usage/linguistic-features#noun-chunks).<br />**Example:** [`syntax_iterators.py`](%%GITHUB_SPACY/spacy/lang/en/syntax_iterators.py). ~~Dict[str, Callable[[Union[Doc, Span]], Iterator[Span]]]~~ |
+| `writing_system`                  | Information about the language's writing system, available via `Vocab.writing_system`. Defaults to: `{"direction": "ltr", "has_case": True, "has_letters": True}.`.<br />**Example:** [`zh/__init__.py`](%%GITHUB_SPACY/spacy/lang/zh/__init__.py) ~~Dict[str, Any]~~                                            |
+| `config`                          | Default [config](/usage/training#config) added to `nlp.config`. This can include references to custom tokenizers or lemmatizers.<br />**Example:** [`zh/__init__.py`](%%GITHUB_SPACY/spacy/lang/zh/__init__.py) ~~Config~~                                                                                       |
 
 ## Serialization fields {#serialization-fields}
 
@@ -951,7 +1027,7 @@ serialization by passing in the string names via the `exclude` argument.
 >
 > ```python
 > data = nlp.to_bytes(exclude=["tokenizer", "vocab"])
-> nlp.from_disk("./model-data", exclude=["ner"])
+> nlp.from_disk("/pipeline", exclude=["ner"])
 > ```
 
 | Name        | Description                                                        |
@@ -969,12 +1045,12 @@ provided by the [`@Language.component`](/api/language#component) or
 component is defined and stored on the `Language` class for each component
 instance and factory instance.
 
-| Name                    | Description                                                                                                                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `factory`               | The name of the registered component factory. ~~str~~                                                                                                                                                                                            |
-| `default_config`        | The default config, describing the default values of the factory arguments. ~~Dict[str, Any]~~                                                                                                                                                   |
-| `assigns`               | `Doc` or `Token` attributes assigned by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                               |
-| `requires`              | `Doc` or `Token` attributes required by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                               |
-| `retokenizes`           | Whether the component changes tokenization. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~bool~~                                                                                                                             |
-| `scores`                | All scores set by the components if it's trainable, e.g. `["ents_f", "ents_r", "ents_p"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                     |
-| `default_score_weights` | The scores to report during training, and their default weight towards the final score used to select the best model. Weights should sum to `1.0` per component and will be combined and normalized for the whole pipeline. ~~Dict[str, float]~~ |
+| Name                    | Description                                                                                                                                                                                                                                                                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `factory`               | The name of the registered component factory. ~~str~~                                                                                                                                                                                                                                                                              |
+| `default_config`        | The default config, describing the default values of the factory arguments. ~~Dict[str, Any]~~                                                                                                                                                                                                                                     |
+| `assigns`               | `Doc` or `Token` attributes assigned by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                                                                                                                 |
+| `requires`              | `Doc` or `Token` attributes required by this component, e.g. `["token.ent_id"]`. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                                                                                                                 |
+| `retokenizes`           | Whether the component changes tokenization. Used for [pipe analysis](/usage/processing-pipelines#analysis). ~~bool~~                                                                                                                                                                                                               |
+| `default_score_weights` | The scores to report during training, and their default weight towards the final score used to select the best model. Weights should sum to `1.0` per component and will be combined and normalized for the whole pipeline. If a weight is set to `None`, the score will not be logged or weighted. ~~Dict[str, Optional[float]]~~ |
+| `scores`                | All scores set by the components if it's trainable, e.g. `["ents_f", "ents_r", "ents_p"]`. Based on the `default_score_weights` and used for [pipe analysis](/usage/processing-pipelines#analysis). ~~Iterable[str]~~                                                                                                              |

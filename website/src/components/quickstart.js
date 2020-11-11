@@ -24,9 +24,11 @@ const Quickstart = ({
     rawContent = null,
     id = 'quickstart',
     setters = {},
+    showDropdown = {},
     hidePrompts,
     small,
     codeLang,
+    Container = Section,
     children,
 }) => {
     const contentRef = useRef()
@@ -83,7 +85,7 @@ const Quickstart = ({
     }, [data, initialized])
 
     return !data.length ? null : (
-        <Section id={id}>
+        <Container id={id}>
             <div className={classNames(classes.root, { [classes.hidePrompts]: !!hidePrompts })}>
                 {title && (
                     <H2 className={classes.title} name={id}>
@@ -106,6 +108,8 @@ const Quickstart = ({
                     }) => {
                         // Optional function that's called with the value
                         const setterFunc = setters[id] || (() => {})
+                        // Check if dropdown should be shown
+                        const dropdownGetter = showDropdown[id] || (() => true)
                         return (
                             <div key={id} data-quickstart-group={id} className={classes.group}>
                                 <style data-quickstart-style={id} scoped>
@@ -122,37 +126,6 @@ const Quickstart = ({
                                     )}
                                 </div>
                                 <div className={classes.fields}>
-                                    {!!dropdown.length && (
-                                        <select
-                                            defaultValue={defaultValue}
-                                            className={classes.select}
-                                            onChange={({ target }) => {
-                                                const value = target.value
-                                                if (value != other) {
-                                                    setterFunc(value)
-                                                    setOther(id, false)
-                                                } else {
-                                                    setterFunc('')
-                                                    setOther(id, true)
-                                                }
-                                            }}
-                                        >
-                                            {dropdown.map(({ id, title }) => (
-                                                <option key={id} value={id}>
-                                                    {title}
-                                                </option>
-                                            ))}
-                                            {other && <option value={other}>{other}</option>}
-                                        </select>
-                                    )}
-                                    {other && otherState[id] && (
-                                        <input
-                                            type="text"
-                                            className={classes.textInput}
-                                            placeholder="Type here..."
-                                            onChange={({ target }) => setterFunc(target.value)}
-                                        />
-                                    )}
                                     {options.map(option => {
                                         const optionType = multiple ? 'checkbox' : 'radio'
                                         const checkedForId = checked[id] || []
@@ -178,7 +151,10 @@ const Quickstart = ({
                                                     type={optionType}
                                                     className={classNames(
                                                         classes.input,
-                                                        classes[optionType]
+                                                        classes[optionType],
+                                                        {
+                                                            [classes.long]: options.length >= 4,
+                                                        }
                                                     )}
                                                     name={id}
                                                     id={`quickstart-${option.id}`}
@@ -208,6 +184,41 @@ const Quickstart = ({
                                             </Fragment>
                                         )
                                     })}
+                                    <span className={classes.fieldExtra}>
+                                        {!!dropdown.length && (
+                                            <select
+                                                defaultValue={defaultValue}
+                                                className={classNames(classes.select, {
+                                                    [classes.selectHidden]: !dropdownGetter(),
+                                                })}
+                                                onChange={({ target }) => {
+                                                    const value = target.value
+                                                    if (value != other) {
+                                                        setterFunc(value)
+                                                        setOther(id, false)
+                                                    } else {
+                                                        setterFunc('')
+                                                        setOther(id, true)
+                                                    }
+                                                }}
+                                            >
+                                                {dropdown.map(({ id, title }) => (
+                                                    <option key={id} value={id}>
+                                                        {title}
+                                                    </option>
+                                                ))}
+                                                {other && <option value={other}>{other}</option>}
+                                            </select>
+                                        )}
+                                        {other && otherState[id] && (
+                                            <input
+                                                type="text"
+                                                className={classes.textInput}
+                                                placeholder="Type here..."
+                                                onChange={({ target }) => setterFunc(target.value)}
+                                            />
+                                        )}
+                                    </span>
                                 </div>
                             </div>
                         )
@@ -249,7 +260,7 @@ const Quickstart = ({
                 </pre>
                 {showCopy && <textarea ref={copyAreaRef} className={classes.copyArea} rows={1} />}
             </div>
-        </Section>
+        </Container>
     )
 }
 

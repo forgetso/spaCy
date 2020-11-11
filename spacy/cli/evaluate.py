@@ -3,11 +3,11 @@ from wasabi import Printer
 from pathlib import Path
 import re
 import srsly
-from thinc.api import require_gpu, fix_random_seed
+from thinc.api import fix_random_seed
 
-from ..gold import Corpus
+from ..training import Corpus
 from ..tokens import Doc
-from ._util import app, Arg, Opt
+from ._util import app, Arg, Opt, setup_gpu, import_code
 from ..scorer import Scorer
 from .. import util
 from .. import displacy
@@ -19,6 +19,7 @@ def evaluate_cli(
     model: str = Arg(..., help="Model name or path"),
     data_path: Path = Arg(..., help="Location of binary evaluation data in .spacy format", exists=True),
     output: Optional[Path] = Opt(None, "--output", "-o", help="Output JSON file for metrics", dir_okay=False),
+    code_path: Optional[Path] = Opt(None, "--code", "-c", help="Path to Python file with additional code (registered functions) to be imported"),
     use_gpu: int = Opt(-1, "--gpu-id", "-g", help="GPU ID or -1 for CPU"),
     gold_preproc: bool = Opt(False, "--gold-preproc", "-G", help="Use gold preprocessing"),
     displacy_path: Optional[Path] = Opt(None, "--displacy-path", "-dp", help="Directory to output rendered parses as HTML", exists=True, file_okay=False),
@@ -26,14 +27,18 @@ def evaluate_cli(
     # fmt: on
 ):
     """
-    Evaluate a model. Expects a loadable spaCy model and evaluation data in the
-    binary .spacy format. The --gold-preproc option sets up the evaluation
-    examples with gold-standard sentences and tokens for the predictions. Gold
-    preprocessing helps the annotations align to the tokenization, and may
-    result in sequences of more consistent length. However, it may reduce
-    runtime accuracy due to train/test skew. To render a sample of dependency
-    parses in a HTML file, set as output directory as the displacy_path argument.
+    Evaluate a trained pipeline. Expects a loadable spaCy pipeline and evaluation
+    data in the binary .spacy format. The --gold-preproc option sets up the
+    evaluation examples with gold-standard sentences and tokens for the
+    predictions. Gold preprocessing helps the annotations align to the
+    tokenization, and may result in sequences of more consistent length. However,
+    it may reduce runtime accuracy due to train/test skew. To render a sample of
+    dependency parses in a HTML file, set as output directory as the
+    displacy_path argument.
+
+    DOCS: https://nightly.spacy.io/api/cli#evaluate
     """
+    import_code(code_path)
     evaluate(
         model,
         data_path,
@@ -58,8 +63,7 @@ def evaluate(
 ) -> Scorer:
     msg = Printer(no_print=silent, pretty=not silent)
     fix_random_seed()
-    if use_gpu >= 0:
-        require_gpu(use_gpu)
+    setup_gpu(use_gpu)
     data_path = util.ensure_path(data_path)
     output_path = util.ensure_path(output)
     displacy_path = util.ensure_path(displacy_path)
@@ -89,27 +93,42 @@ def evaluate(
         "SPEED": "speed",
     }
     results = {}
+    data = {}
     for metric, key in metrics.items():
         if key in scores:
             if key == "cats_score":
                 metric = metric + " (" + scores.get("cats_score_desc", "unk") + ")"
-            if key == "speed":
-                results[metric] = f"{scores[key]:.0f}"
+            if isinstance(scores[key], (int, float)):
+                if key == "speed":
+                    results[metric] = f"{scores[key]:.0f}"
+                else:
+                    results[metric] = f"{scores[key]*100:.2f}"
             else:
-                results[metric] = f"{scores[key]*100:.2f}"
-    data = {re.sub(r"[\s/]", "_", k.lower()): v for k, v in results.items()}
+                results[metric] = "-"
+            data[re.sub(r"[\s/]", "_", key.lower())] = scores[key]
 
     msg.table(results, title="Results")
 
+    if "morph_per_feat" in scores:
+        if scores["morph_per_feat"]:
+            print_prf_per_type(msg, scores["morph_per_feat"], "MORPH", "feat")
+            data["morph_per_feat"] = scores["morph_per_feat"]
+    if "dep_las_per_type" in scores:
+        if scores["dep_las_per_type"]:
+            print_prf_per_type(msg, scores["dep_las_per_type"], "LAS", "type")
+            data["dep_las_per_type"] = scores["dep_las_per_type"]
     if "ents_per_type" in scores:
         if scores["ents_per_type"]:
-            print_ents_per_type(msg, scores["ents_per_type"])
+            print_prf_per_type(msg, scores["ents_per_type"], "NER", "type")
+            data["ents_per_type"] = scores["ents_per_type"]
     if "cats_f_per_type" in scores:
         if scores["cats_f_per_type"]:
-            print_textcats_f_per_cat(msg, scores["cats_f_per_type"])
+            print_prf_per_type(msg, scores["cats_f_per_type"], "Textcat F", "label")
+            data["cats_f_per_type"] = scores["cats_f_per_type"]
     if "cats_auc_per_type" in scores:
         if scores["cats_auc_per_type"]:
             print_textcats_auc_per_cat(msg, scores["cats_auc_per_type"])
+            data["cats_auc_per_type"] = scores["cats_auc_per_type"]
 
     if displacy_path:
         factory_names = [nlp.get_pipe_meta(pipe).factory for pipe in nlp.pipe_names]
@@ -153,7 +172,7 @@ def render_parses(
             file_.write(html)
 
 
-def print_ents_per_type(msg: Printer, scores: Dict[str, Dict[str, float]]) -> None:
+def print_prf_per_type(msg: Printer, scores: Dict[str, Dict[str, float]], name: str, type: str) -> None:
     data = [
         (k, f"{v['p']*100:.2f}", f"{v['r']*100:.2f}", f"{v['f']*100:.2f}")
         for k, v in scores.items()
@@ -162,20 +181,7 @@ def print_ents_per_type(msg: Printer, scores: Dict[str, Dict[str, float]]) -> No
         data,
         header=("", "P", "R", "F"),
         aligns=("l", "r", "r", "r"),
-        title="NER (per type)",
-    )
-
-
-def print_textcats_f_per_cat(msg: Printer, scores: Dict[str, Dict[str, float]]) -> None:
-    data = [
-        (k, f"{v['p']*100:.2f}", f"{v['r']*100:.2f}", f"{v['f']*100:.2f}")
-        for k, v in scores.items()
-    ]
-    msg.table(
-        data,
-        header=("", "P", "R", "F"),
-        aligns=("l", "r", "r", "r"),
-        title="Textcat F (per label)",
+        title=f"{name} (per {type})",
     )
 
 

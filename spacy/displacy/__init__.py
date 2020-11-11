@@ -1,8 +1,8 @@
 """
 spaCy's built in visualization suite for dependencies and named entities.
 
-DOCS: https://spacy.io/api/top-level#displacy
-USAGE: https://spacy.io/usage/visualizers
+DOCS: https://nightly.spacy.io/api/top-level#displacy
+USAGE: https://nightly.spacy.io/usage/visualizers
 """
 from typing import Union, Iterable, Optional, Dict, Any, Callable
 import warnings
@@ -37,8 +37,8 @@ def render(
     manual (bool): Don't parse `Doc` and instead expect a dict/list of dicts.
     RETURNS (str): Rendered HTML markup.
 
-    DOCS: https://spacy.io/api/top-level#displacy.render
-    USAGE: https://spacy.io/usage/visualizers
+    DOCS: https://nightly.spacy.io/api/top-level#displacy.render
+    USAGE: https://nightly.spacy.io/usage/visualizers
     """
     factories = {
         "dep": (DependencyRenderer, parse_deps),
@@ -88,8 +88,8 @@ def serve(
     port (int): Port to serve visualisation.
     host (str): Host to serve visualisation.
 
-    DOCS: https://spacy.io/api/top-level#displacy.serve
-    USAGE: https://spacy.io/usage/visualizers
+    DOCS: https://nightly.spacy.io/api/top-level#displacy.serve
+    USAGE: https://nightly.spacy.io/usage/visualizers
     """
     from wsgiref import simple_server
 
@@ -121,7 +121,7 @@ def parse_deps(orig_doc: Doc, options: Dict[str, Any] = {}) -> Dict[str, Any]:
     RETURNS (dict): Generated dependency parse keyed by words and arcs.
     """
     doc = Doc(orig_doc.vocab).from_bytes(orig_doc.to_bytes(exclude=["user_data"]))
-    if not doc.is_parsed:
+    if not doc.has_annotation("DEP"):
         warnings.warn(Warnings.W005)
     if options.get("collapse_phrases", False):
         with doc.retokenize() as retokenizer:

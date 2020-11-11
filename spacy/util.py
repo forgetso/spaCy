@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 import thinc
 from thinc.api import NumpyOps, get_current_ops, Adam, Config, Optimizer
+from thinc.api import ConfigValidationError
 import functools
 import itertools
 import numpy.random
@@ -56,17 +57,23 @@ if TYPE_CHECKING:
 
 
 OOV_RANK = numpy.iinfo(numpy.uint64).max
+DEFAULT_OOV_PROB = -20
 LEXEME_NORM_LANGS = ["da", "de", "el", "en", "id", "lb", "pt", "ru", "sr", "ta", "th"]
 
 # Default order of sections in the config.cfg. Not all sections needs to exist,
 # and additional sections are added at the end, in alphabetical order.
 # fmt: off
-CONFIG_SECTION_ORDER = ["paths", "variables", "system", "nlp", "components", "training", "pretraining"]
+CONFIG_SECTION_ORDER = ["paths", "variables", "system", "nlp", "components", "corpora", "training", "pretraining", "initialize"]
 # fmt: on
 
 
-logging.basicConfig()
+logging.basicConfig(format="%(message)s")
 logger = logging.getLogger("spacy")
+
+
+class ENV_VARS:
+    CONFIG_OVERRIDES = "SPACY_CONFIG_OVERRIDES"
+    PROJECT_USE_GIT_VERSION = "SPACY_PROJECT_USE_GIT_VERSION"
 
 
 class registry(thinc.registry):
@@ -76,22 +83,25 @@ class registry(thinc.registry):
     lemmatizers = catalogue.create("spacy", "lemmatizers", entry_points=True)
     lookups = catalogue.create("spacy", "lookups", entry_points=True)
     displacy_colors = catalogue.create("spacy", "displacy_colors", entry_points=True)
-    assets = catalogue.create("spacy", "assets", entry_points=True)
+    misc = catalogue.create("spacy", "misc", entry_points=True)
     # Callback functions used to manipulate nlp object etc.
     callbacks = catalogue.create("spacy", "callbacks")
     batchers = catalogue.create("spacy", "batchers", entry_points=True)
     readers = catalogue.create("spacy", "readers", entry_points=True)
+    augmenters = catalogue.create("spacy", "augmenters", entry_points=True)
+    loggers = catalogue.create("spacy", "loggers", entry_points=True)
     # These are factories registered via third-party packages and the
     # spacy_factories entry point. This registry only exists so we can easily
     # load them via the entry points. The "true" factories are added via the
     # Language.factory decorator (in the spaCy code base and user code) and those
-    # are the factories used to initialize components via registry.make_from_config.
+    # are the factories used to initialize components via registry.resolve.
     _entry_point_factories = catalogue.create("spacy", "factories", entry_points=True)
     factories = catalogue.create("spacy", "internal_factories")
     # This is mostly used to get a list of all installed models in the current
     # environment. spaCy models packaged with `spacy package` will "advertise"
     # themselves via entry points.
     models = catalogue.create("spacy", "models", entry_points=True)
+    cli = catalogue.create("spacy", "cli", entry_points=True)
 
 
 class SimpleFrozenDict(dict):
@@ -116,6 +126,47 @@ class SimpleFrozenDict(dict):
         raise NotImplementedError(self.error)
 
     def update(self, other):
+        raise NotImplementedError(self.error)
+
+
+class SimpleFrozenList(list):
+    """Wrapper class around a list that lets us raise custom errors if certain
+    attributes/methods are accessed. Mostly used for properties like
+    Language.pipeline that return an immutable list (and that we don't want to
+    convert to a tuple to not break too much backwards compatibility). If a user
+    accidentally calls nlp.pipeline.append(), we can raise a more helpful error.
+    """
+
+    def __init__(self, *args, error: str = Errors.E927) -> None:
+        """Initialize the frozen list.
+
+        error (str): The error message when user tries to mutate the list.
+        """
+        self.error = error
+        super().__init__(*args)
+
+    def append(self, *args, **kwargs):
+        raise NotImplementedError(self.error)
+
+    def clear(self, *args, **kwargs):
+        raise NotImplementedError(self.error)
+
+    def extend(self, *args, **kwargs):
+        raise NotImplementedError(self.error)
+
+    def insert(self, *args, **kwargs):
+        raise NotImplementedError(self.error)
+
+    def pop(self, *args, **kwargs):
+        raise NotImplementedError(self.error)
+
+    def remove(self, *args, **kwargs):
+        raise NotImplementedError(self.error)
+
+    def reverse(self, *args, **kwargs):
+        raise NotImplementedError(self.error)
+
+    def sort(self, *args, **kwargs):
         raise NotImplementedError(self.error)
 
 
@@ -196,25 +247,12 @@ def get_module_path(module: ModuleType) -> Path:
     return Path(sys.modules[module.__module__].__file__).parent
 
 
-def load_vectors_into_model(
-    nlp: "Language", name: Union[str, Path], *, add_strings=True
-) -> None:
-    """Load word vectors from an installed model or path into a model instance."""
-    vectors_nlp = load_model(name)
-    nlp.vocab.vectors = vectors_nlp.vocab.vectors
-    if add_strings:
-        # I guess we should add the strings from the vectors_nlp model?
-        # E.g. if someone does a similarity query, they might expect the strings.
-        for key in nlp.vocab.vectors.key2row:
-            if key in vectors_nlp.vocab.strings:
-                nlp.vocab.strings.add(vectors_nlp.vocab.strings[key])
-
-
 def load_model(
     name: Union[str, Path],
     *,
     vocab: Union["Vocab", bool] = True,
-    disable: Iterable[str] = tuple(),
+    disable: Iterable[str] = SimpleFrozenList(),
+    exclude: Iterable[str] = SimpleFrozenList(),
     config: Union[Dict[str, Any], Config] = SimpleFrozenDict(),
     shared=None,
 ) -> "Language":
@@ -228,7 +266,7 @@ def load_model(
         keyed by section values in dot notation.
     RETURNS (Language): The loaded nlp object.
     """
-    kwargs = {"vocab": vocab, "disable": disable, "config": config, 'shared': shared}
+    kwargs = {"vocab": vocab, "disable": disable, "exclude": exclude, "config": config, "shared": shared}
     if isinstance(name, str):  # name or string path
         if name.startswith("blank:"):  # shortcut for blank model
             return get_lang_class(name.replace("blank:", ""))()
@@ -247,7 +285,8 @@ def load_model_from_package(
     name: str,
     *,
     vocab: Union["Vocab", bool] = True,
-    disable: Iterable[str] = tuple(),
+    disable: Iterable[str] = SimpleFrozenList(),
+    exclude: Iterable[str] = SimpleFrozenList(),
     config: Union[Dict[str, Any], Config] = SimpleFrozenDict(),
     shared: Optional[Dict[str, Dict]]
 ) -> "Language":
@@ -256,13 +295,17 @@ def load_model_from_package(
     name (str): The package name.
     vocab (Vocab / True): Optional vocab to pass in on initialization. If True,
         a new Vocab object will be created.
-    disable (Iterable[str]): Names of pipeline components to disable.
+    disable (Iterable[str]): Names of pipeline components to disable. Disabled
+        pipes will be loaded but they won't be run unless you explicitly
+        enable them by calling nlp.enable_pipe.
+    exclude (Iterable[str]): Names of pipeline components to exclude. Excluded
+        components won't be loaded.
     config (Dict[str, Any] / Config): Config overrides as nested dict or dict
         keyed by section values in dot notation.
     RETURNS (Language): The loaded nlp object.
     """
     cls = importlib.import_module(name)
-    return cls.load(vocab=vocab, disable=disable, config=config)
+    return cls.load(vocab=vocab, disable=disable, exclude=exclude, config=config)
 
 
 def load_model_from_path(
@@ -270,7 +313,8 @@ def load_model_from_path(
     *,
     meta: Optional[Dict[str, Any]] = None,
     vocab: Union["Vocab", bool] = True,
-    disable: Iterable[str] = tuple(),
+    disable: Iterable[str] = SimpleFrozenList(),
+    exclude: Iterable[str] = SimpleFrozenList(),
     config: Union[Dict[str, Any], Config] = SimpleFrozenDict(),
     shared: dict = None
 ) -> "Language":
@@ -281,7 +325,11 @@ def load_model_from_path(
     meta (Dict[str, Any]): Optional model meta.
     vocab (Vocab / True): Optional vocab to pass in on initialization. If True,
         a new Vocab object will be created.
-    disable (Iterable[str]): Names of pipeline components to disable.
+    disable (Iterable[str]): Names of pipeline components to disable. Disabled
+        pipes will be loaded but they won't be run unless you explicitly
+        enable them by calling nlp.enable_pipe.
+    exclude (Iterable[str]): Names of pipeline components to exclude. Excluded
+        components won't be loaded.
     config (Dict[str, Any] / Config): Config overrides as nested dict or dict
         keyed by section values in dot notation.
     RETURNS (Language): The loaded nlp object.
@@ -292,7 +340,7 @@ def load_model_from_path(
         meta = get_model_meta(model_path)
     config_path = model_path / "config.cfg"
     config = load_config(config_path, overrides=dict_to_dot(config))
-    nlp, _ = load_model_from_config(config, vocab=vocab, disable=disable, shared=shared)
+    nlp, _ = load_model_from_config(config, vocab=vocab, disable=disable, exclude=exclude, shared=shared)
     return nlp.from_disk(model_path, exclude=disable)
 
 
@@ -300,11 +348,12 @@ def load_model_from_config(
     config: Union[Dict[str, Any], Config],
     *,
     vocab: Union["Vocab", bool] = True,
-    disable: Iterable[str] = tuple(),
+    disable: Iterable[str] = SimpleFrozenList(),
+    exclude: Iterable[str] = SimpleFrozenList(),
     auto_fill: bool = False,
     validate: bool = True,
     shared: dict = None
-) -> Tuple["Language", Config]:
+) -> "Language":
     """Create an nlp object from a config. Expects the full config file including
     a section "nlp" containing the settings for the nlp object.
 
@@ -312,7 +361,11 @@ def load_model_from_config(
     meta (Dict[str, Any]): Optional model meta.
     vocab (Vocab / True): Optional vocab to pass in on initialization. If True,
         a new Vocab object will be created.
-    disable (Iterable[str]): Names of pipeline components to disable.
+    disable (Iterable[str]): Names of pipeline components to disable. Disabled
+        pipes will be loaded but they won't be run unless you explicitly
+        enable them by calling nlp.enable_pipe.
+    exclude (Iterable[str]): Names of pipeline components to exclude. Excluded
+        components won't be loaded.
     auto_fill (bool): Whether to auto-fill config with missing defaults.
     validate (bool): Whether to show config validation errors.
     RETURNS (Language): The loaded nlp object.
@@ -326,16 +379,58 @@ def load_model_from_config(
     # registry, including custom subclasses provided via entry points
     lang_cls = get_lang_class(nlp_config["lang"])
     nlp = lang_cls.from_config(
-        config, vocab=vocab, disable=disable, auto_fill=auto_fill, validate=validate, shared=shared
+        config,
+        vocab=vocab,
+        disable=disable,
+        exclude=exclude,
+        auto_fill=auto_fill,
+        validate=validate,
+        shared=shared
     )
-    return nlp, nlp.resolved
+    return nlp
+
+
+def resolve_dot_names(config: Config, dot_names: List[Optional[str]]) -> Tuple[Any]:
+    """Resolve one or more "dot notation" names, e.g. corpora.train.
+    The paths could point anywhere into the config, so we don't know which
+    top-level section we'll be looking within.
+
+    We resolve the whole top-level section, although we could resolve less --
+    we could find the lowest part of the tree.
+    """
+    # TODO: include schema?
+    resolved = {}
+    output = []
+    errors = []
+    for name in dot_names:
+        if name is None:
+            output.append(name)
+        else:
+            section = name.split(".")[0]
+            # We want to avoid resolving the same thing twice
+            if section not in resolved:
+                if registry.is_promise(config[section]):
+                    # Otherwise we can't resolve [corpus] if it's a promise
+                    result = registry.resolve({"config": config[section]})["config"]
+                else:
+                    result = registry.resolve(config[section])
+                resolved[section] = result
+            try:
+                output.append(dot_to_object(resolved, name))
+            except KeyError:
+                msg = f"not a valid section reference: {name}"
+                errors.append({"loc": name.split("."), "msg": msg})
+    if errors:
+        raise ConfigValidationError(config=config, errors=errors)
+    return tuple(output)
 
 
 def load_model_from_init_py(
     init_file: Union[Path, str],
     *,
     vocab: Union["Vocab", bool] = True,
-    disable: Iterable[str] = tuple(),
+    disable: Iterable[str] = SimpleFrozenList(),
+    exclude: Iterable[str] = SimpleFrozenList(),
     config: Union[Dict[str, Any], Config] = SimpleFrozenDict(),
 ) -> "Language":
     """Helper function to use in the `load()` method of a model package's
@@ -343,7 +438,11 @@ def load_model_from_init_py(
 
     vocab (Vocab / True): Optional vocab to pass in on initialization. If True,
         a new Vocab object will be created.
-    disable (Iterable[str]): Names of pipeline components to disable.
+    disable (Iterable[str]): Names of pipeline components to disable. Disabled
+        pipes will be loaded but they won't be run unless you explicitly
+        enable them by calling nlp.enable_pipe.
+    exclude (Iterable[str]): Names of pipeline components to exclude. Excluded
+        components won't be loaded.
     config (Dict[str, Any] / Config): Config overrides as nested dict or dict
         keyed by section values in dot notation.
     RETURNS (Language): The loaded nlp object.
@@ -355,7 +454,12 @@ def load_model_from_init_py(
     if not model_path.exists():
         raise IOError(Errors.E052.format(path=data_path))
     return load_model_from_path(
-        data_path, vocab=vocab, meta=meta, disable=disable, config=config
+        data_path,
+        vocab=vocab,
+        meta=meta,
+        disable=disable,
+        exclude=exclude,
+        config=config,
     )
 
 
@@ -390,7 +494,7 @@ def load_config_from_str(
     RETURNS (Config): The loaded config.
     """
     return Config(section_order=CONFIG_SECTION_ORDER).from_str(
-        text, overrides=overrides, interpolate=interpolate,
+        text, overrides=overrides, interpolate=interpolate
     )
 
 
@@ -486,6 +590,33 @@ def get_base_version(version: str) -> str:
     return Version(version).base_version
 
 
+def get_minor_version(version: str) -> Optional[str]:
+    """Get the major + minor version (without patch or prerelease identifiers).
+
+    version (str): The version.
+    RETURNS (str): The major + minor version or None if version is invalid.
+    """
+    try:
+        v = Version(version)
+    except (TypeError, InvalidVersion):
+        return None
+    return f"{v.major}.{v.minor}"
+
+
+def is_minor_version_match(version_a: str, version_b: str) -> bool:
+    """Compare two versions and check if they match in major and minor, without
+    patch or prerelease identifiers. Used internally for compatibility checks
+    that should be insensitive to patch releases.
+
+    version_a (str): The first version
+    version_b (str): The second version.
+    RETURNS (bool): Whether the versions match.
+    """
+    a = get_minor_version(version_a)
+    b = get_minor_version(version_b)
+    return a is not None and b is not None and a == b
+
+
 def load_meta(path: Union[str, Path]) -> Dict[str, Any]:
     """Load a model meta.json from a path and validate its contents.
 
@@ -496,7 +627,7 @@ def load_meta(path: Union[str, Path]) -> Dict[str, Any]:
     if not path.parent.exists():
         raise IOError(Errors.E052.format(path=path.parent))
     if not path.exists() or not path.is_file():
-        raise IOError(Errors.E053.format(path=path, name="meta.json"))
+        raise IOError(Errors.E053.format(path=path.parent, name="meta.json"))
     meta = srsly.read_json(path)
     for setting in ["lang", "name", "version"]:
         if setting not in meta or not meta[setting]:
@@ -576,23 +707,60 @@ def join_command(command: List[str]) -> str:
     return " ".join(shlex.quote(cmd) for cmd in command)
 
 
-def run_command(command: Union[str, List[str]]) -> None:
+def run_command(
+    command: Union[str, List[str]],
+    *,
+    stdin: Optional[Any] = None,
+    capture: bool = False,
+) -> Optional[subprocess.CompletedProcess]:
     """Run a command on the command line as a subprocess. If the subprocess
     returns a non-zero exit code, a system exit is performed.
 
     command (str / List[str]): The command. If provided as a string, the
         string will be split using shlex.split.
+    stdin (Optional[Any]): stdin to read from or None.
+    capture (bool): Whether to capture the output and errors. If False,
+        the stdout and stderr will not be redirected, and if there's an error,
+        sys.exit will be called with the returncode. You should use capture=False
+        when you want to turn over execution to the command, and capture=True
+        when you want to run the command more like a function.
+    RETURNS (Optional[CompletedProcess]): The process object.
     """
     if isinstance(command, str):
-        command = split_command(command)
+        cmd_list = split_command(command)
+        cmd_str = command
+    else:
+        cmd_list = command
+        cmd_str = " ".join(command)
     try:
-        status = subprocess.call(command, env=os.environ.copy())
+        ret = subprocess.run(
+            cmd_list,
+            env=os.environ.copy(),
+            input=stdin,
+            encoding="utf8",
+            check=False,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.STDOUT if capture else None,
+        )
     except FileNotFoundError:
+        # Indicates the *command* wasn't found, it's an error before the command
+        # is run.
         raise FileNotFoundError(
-            Errors.E970.format(str_command=" ".join(command), tool=command[0])
+            Errors.E970.format(str_command=cmd_str, tool=cmd_list[0])
         ) from None
-    if status != 0:
-        sys.exit(status)
+    if ret.returncode != 0 and capture:
+        message = f"Error running command:\n\n{cmd_str}\n\n"
+        message += f"Subprocess exited with status {ret.returncode}"
+        if ret.stdout is not None:
+            message += f"\n\nProcess log (stdout and stderr):\n\n"
+            message += ret.stdout
+        error = subprocess.SubprocessError(message)
+        error.ret = ret
+        error.command = cmd_str
+        raise error
+    elif ret.returncode != 0:
+        sys.exit(ret.returncode)
+    return ret
 
 
 @contextmanager
@@ -658,13 +826,32 @@ def get_object_name(obj: Any) -> str:
     obj (Any): The Python object, typically a function or class.
     RETURNS (str): A human-readable name.
     """
-    if hasattr(obj, "name"):
+    if hasattr(obj, "name") and obj.name is not None:
         return obj.name
     if hasattr(obj, "__name__"):
         return obj.__name__
     if hasattr(obj, "__class__") and hasattr(obj.__class__, "__name__"):
         return obj.__class__.__name__
     return repr(obj)
+
+
+def is_same_func(func1: Callable, func2: Callable) -> bool:
+    """Approximately decide whether two functions are the same, even if their
+    identity is different (e.g. after they have been live reloaded). Mostly
+    used in the @Language.component and @Language.factory decorators to decide
+    whether to raise if a factory already exists. Allows decorator to run
+    multiple times with the same function.
+
+    func1 (Callable): The first function.
+    func2 (Callable): The second function.
+    RETURNS (bool): Whether it's the same function (most likely).
+    """
+    if not callable(func1) or not callable(func2):
+        return False
+    same_name = func1.__qualname__ == func2.__qualname__
+    same_file = inspect.getfile(func1) == inspect.getfile(func2)
+    same_code = inspect.getsourcelines(func1) == inspect.getsourcelines(func2)
+    return same_name and same_file and same_code
 
 
 def get_cuda_stream(
@@ -836,7 +1023,7 @@ def filter_spans(spans: Iterable["Span"]) -> List["Span"]:
         # Check for end - 1 here because boundaries are inclusive
         if span.start not in seen_tokens and span.end - 1 not in seen_tokens:
             result.append(span)
-        seen_tokens.update(range(span.start, span.end))
+            seen_tokens.update(range(span.start, span.end))
     result = sorted(result, key=lambda span: span.start)
     return result
 
@@ -911,7 +1098,6 @@ def import_file(name: str, loc: Union[str, Path]) -> ModuleType:
     loc (str / Path): Path to the file.
     RETURNS: The loaded module.
     """
-    loc = str(loc)
     spec = importlib.util.spec_from_file_location(name, str(loc))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -1066,22 +1252,44 @@ def get_arg_names(func: Callable) -> List[str]:
     return list(set([*argspec.args, *argspec.kwonlyargs]))
 
 
-def combine_score_weights(weights: List[Dict[str, float]]) -> Dict[str, float]:
+def combine_score_weights(
+    weights: List[Dict[str, float]],
+    overrides: Dict[str, Optional[Union[float, int]]] = SimpleFrozenDict(),
+) -> Dict[str, float]:
     """Combine and normalize score weights defined by components, e.g.
     {"ents_r": 0.2, "ents_p": 0.3, "ents_f": 0.5} and {"some_other_score": 1.0}.
 
     weights (List[dict]): The weights defined by the components.
+    overrides (Dict[str, Optional[Union[float, int]]]): Existing scores that
+        should be preserved.
     RETURNS (Dict[str, float]): The combined and normalized weights.
     """
+    # We first need to extract all None/null values for score weights that
+    # shouldn't be shown in the table *or* be weighted
     result = {}
+    all_weights = []
     for w_dict in weights:
+        filtered_weights = {}
+        for key, value in w_dict.items():
+            value = overrides.get(key, value)
+            if value is None:
+                result[key] = None
+            else:
+                filtered_weights[key] = value
+        all_weights.append(filtered_weights)
+    for w_dict in all_weights:
         # We need to account for weights that don't sum to 1.0 and normalize
         # the score weights accordingly, then divide score by the number of
         # components.
         total = sum(w_dict.values())
         for key, value in w_dict.items():
-            weight = round(value / total / len(weights), 2)
-            result[key] = result.get(key, 0.0) + weight
+            if total == 0:
+                weight = 0.0
+            else:
+                weight = round(value / total / len(all_weights), 2)
+            prev_weight = result.get(key, 0.0)
+            prev_weight = 0.0 if prev_weight is None else prev_weight
+            result[key] = prev_weight + weight
     return result
 
 
@@ -1120,3 +1328,50 @@ def minibatch(items, size):
         if len(batch) == 0:
             break
         yield list(batch)
+
+
+def is_cython_func(func: Callable) -> bool:
+    """Slightly hacky check for whether a callable is implemented in Cython.
+    Can be used to implement slightly different behaviors, especially around
+    inspecting and parameter annotations. Note that this will only return True
+    for actual cdef functions and methods, not regular Python functions defined
+    in Python modules.
+
+    func (Callable): The callable to check.
+    RETURNS (bool): Whether the callable is Cython (probably).
+    """
+    attr = "__pyx_vtable__"
+    if hasattr(func, attr):  # function or class instance
+        return True
+    # https://stackoverflow.com/a/55767059
+    if hasattr(func, "__qualname__") and hasattr(func, "__module__"):  # method
+        cls_func = vars(sys.modules[func.__module__])[func.__qualname__.split(".")[0]]
+        return hasattr(cls_func, attr)
+    return False
+
+
+def check_bool_env_var(env_var: str) -> bool:
+    """Convert the value of an environment variable to a boolean. Add special
+    check for "0" (falsy) and consider everything else truthy, except unset.
+
+    env_var (str): The name of the environment variable to check.
+    RETURNS (bool): Its boolean value.
+    """
+    value = os.environ.get(env_var, False)
+    if value == "0":
+        return False
+    return bool(value)
+
+
+def _pipe(docs, proc, kwargs):
+    if hasattr(proc, "pipe"):
+        yield from proc.pipe(docs, **kwargs)
+    else:
+        # We added some args for pipe that __call__ doesn't expect.
+        kwargs = dict(kwargs)
+        for arg in ["batch_size"]:
+            if arg in kwargs:
+                kwargs.pop(arg)
+        for doc in docs:
+            doc = proc(doc, **kwargs)
+            yield doc

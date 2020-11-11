@@ -105,7 +105,13 @@ def test_tokenizer_add_special_case(tokenizer, text, tokens):
     assert doc[1].text == tokens[1]["orth"]
 
 
-@pytest.mark.parametrize("text,tokens", [("lorem", [{"orth": "lo"}, {"orth": "re"}])])
+@pytest.mark.parametrize(
+    "text,tokens",
+    [
+        ("lorem", [{"orth": "lo"}, {"orth": "re"}]),
+        ("lorem", [{"orth": "lo", "tag": "A"}, {"orth": "rem"}]),
+    ],
+)
 def test_tokenizer_validate_special_case(tokenizer, text, tokens):
     with pytest.raises(ValueError):
         tokenizer.add_special_case(text, tokens)
@@ -149,3 +155,11 @@ def test_tokenizer_special_cases_with_period(tokenizer):
     tokenizer.add_special_case("_SPECIAL_", [{"orth": "_SPECIAL_"}])
     doc = tokenizer(text)
     assert [token.text for token in doc] == ["_SPECIAL_", "."]
+
+
+def test_tokenizer_special_cases_idx(tokenizer):
+    text = "the _ID'X_"
+    tokenizer.add_special_case("_ID'X_", [{"orth": "_ID"}, {"orth": "'X_"}])
+    doc = tokenizer(text)
+    assert doc[1].idx == 4
+    assert doc[2].idx == 7

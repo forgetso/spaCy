@@ -1,4 +1,4 @@
-# cython: infer_types=True, cdivision=True, boundscheck=False
+# cython: infer_types=True, cdivision=True, boundscheck=False, binding=True
 from __future__ import print_function
 from cymem.cymem cimport Pool
 cimport numpy as np
@@ -6,6 +6,8 @@ from itertools import islice
 from libcpp.vector cimport vector
 from libc.string cimport memset
 from libc.stdlib cimport calloc, free
+import random
+from typing import Optional
 
 import srsly
 from thinc.api import set_dropout_rate
@@ -19,13 +21,14 @@ from ..ml.parser_model cimport predict_states, arg_max_if_valid
 from ..ml.parser_model cimport WeightsC, ActivationsC, SizesC, cpu_log_loss
 from ..ml.parser_model cimport get_c_weights, get_c_sizes
 from ..tokens.doc cimport Doc
+from .trainable_pipe import TrainablePipe
 
-from ..gold import validate_examples
+from ..training import validate_examples, validate_get_examples
 from ..errors import Errors, Warnings
 from .. import util
 
 
-cdef class Parser(Pipe):
+cdef class Parser(TrainablePipe):
     """
     Base class of the DependencyParser and EntityRecognizer.
     """
@@ -95,6 +98,10 @@ cdef class Parser(Pipe):
         return class_names
 
     @property
+    def label_data(self):
+        return self.moves.labels
+
+    @property
     def tok2vec(self):
         """Return the embedding and convolutional layer of the model."""
         return self.model.get_ref("tok2vec")
@@ -112,6 +119,7 @@ cdef class Parser(Pipe):
                 resized = True
         if resized:
             self._resize()
+            self.vocab.strings.add(label)
             return 1
         return 0
 
@@ -243,7 +251,7 @@ cdef class Parser(Pipe):
             int nr_class, int batch_size) nogil:
         # n_moves should not be zero at this point, but make sure to avoid zero-length mem alloc
         with gil:
-            assert self.moves.n_moves > 0
+            assert self.moves.n_moves > 0, Errors.E924.format(name=self.name)
         is_valid = <int*>calloc(self.moves.n_moves, sizeof(int))
         cdef int i, guess
         cdef Transition action
@@ -275,22 +283,22 @@ cdef class Parser(Pipe):
         # Prepare the stepwise model, and get the callback for finishing the batch
         model, backprop_tok2vec = self.model.begin_update(
             [eg.predicted for eg in examples])
-        if self.cfg["update_with_oracle_cut_size"] >= 1:
-            # Chop sequences into lengths of this many transitions, to make the
+        max_moves = self.cfg["update_with_oracle_cut_size"]
+        if max_moves >= 1:
+            # Chop sequences into lengths of this many words, to make the
             # batch uniform length.
-            # We used to randomize this, but it's not clear that actually helps?
-            cut_size = self.cfg["update_with_oracle_cut_size"]
-            states, golds, max_steps = self._init_gold_batch(
+            max_moves = int(random.uniform(max_moves // 2, max_moves * 2))
+            states, golds, _ = self._init_gold_batch(
                 examples,
-                max_length=cut_size
+                max_length=max_moves
             )
         else:
             states, golds, _ = self.moves.init_gold_batch(examples)
-            max_steps = max([len(eg.x) for eg in examples])
         if not states:
             return losses
         all_states = list(states)
         states_golds = list(zip(states, golds))
+        n_moves = 0
         while states_golds:
             states, golds = zip(*states_golds)
             scores, backprop = model.begin_update(states)
@@ -303,10 +311,13 @@ cdef class Parser(Pipe):
             # Follow the predicted action
             self.transition_states(states, scores)
             states_golds = [(s, g) for (s, g) in zip(states, golds) if not s.is_final()]
+            if max_moves >= 1 and n_moves >= max_moves:
+                break
+            n_moves += 1
 
         backprop_tok2vec(golds)
         if sgd not in (None, False):
-            self.model.finish_update(sgd)
+            self.finish_update(sgd)
         if set_annotations:
             docs = [eg.predicted for eg in examples]
             self.set_annotations(docs, all_states)
@@ -350,7 +361,7 @@ cdef class Parser(Pipe):
             # If all weights for an output are 0 in the original model, don't
             # supervise that output. This allows us to add classes.
             loss += (d_scores**2).sum()
-            backprop(d_scores, sgd=sgd)
+            backprop(d_scores)
             # Follow the predicted action
             self.transition_states(states, guesses)
             states = [state for state in states if not state.is_final()]
@@ -358,7 +369,7 @@ cdef class Parser(Pipe):
         # Do the backprop
         backprop_tok2vec(docs)
         if sgd is not None:
-            self.model.finish_update(sgd)
+            self.finish_update(sgd)
         losses[self.name] += loss / n_scores
         del backprop
         del backprop_tok2vec
@@ -374,7 +385,7 @@ cdef class Parser(Pipe):
         cdef int i
 
         # n_moves should not be zero at this point, but make sure to avoid zero-length mem alloc
-        assert self.moves.n_moves > 0
+        assert self.moves.n_moves > 0, Errors.E924.format(name=self.name)
 
         is_valid = <int*>mem.alloc(self.moves.n_moves, sizeof(int))
         costs = <float*>mem.alloc(self.moves.n_moves, sizeof(float))
@@ -401,20 +412,20 @@ cdef class Parser(Pipe):
     def set_output(self, nO):
         self.model.attrs["resize_output"](self.model, nO)
 
-    def begin_training(self, get_examples, pipeline=None, sgd=None, **kwargs):
-        if not hasattr(get_examples, "__call__"):
-            err = Errors.E930.format(name="DependencyParser/EntityRecognizer", obj=type(get_examples))
-            raise ValueError(err)
-        self.cfg.update(kwargs)
+    def initialize(self, get_examples, nlp=None, labels=None):
+        validate_get_examples(get_examples, "Parser.initialize")
         lexeme_norms = self.vocab.lookups.get_table("lexeme_norm", {})
         if len(lexeme_norms) == 0 and self.vocab.lang in util.LEXEME_NORM_LANGS:
             langs = ", ".join(util.LEXEME_NORM_LANGS)
             util.logger.debug(Warnings.W033.format(model="parser or NER", langs=langs))
-        actions = self.moves.get_actions(
-            examples=get_examples(),
-            min_freq=self.cfg['min_action_freq'],
-            learn_tokens=self.cfg["learn_tokens"]
-        )
+        if labels is not None:
+            actions = dict(labels)
+        else:
+            actions = self.moves.get_actions(
+                examples=get_examples(),
+                min_freq=self.cfg['min_action_freq'],
+                learn_tokens=self.cfg["learn_tokens"]
+            )
         for action, labels in self.moves.labels.items():
             actions.setdefault(action, {})
             for label, freq in labels.items():
@@ -423,48 +434,45 @@ cdef class Parser(Pipe):
         self.moves.initialize_actions(actions)
         # make sure we resize so we have an appropriate upper layer
         self._resize()
-        if sgd is None:
-            sgd = self.create_optimizer()
         doc_sample = []
-        for example in islice(get_examples(), 10):
-            doc_sample.append(example.predicted)
-
-        if pipeline is not None:
-            for name, component in pipeline:
+        if nlp is not None:
+            for name, component in nlp.pipeline:
                 if component is self:
                     break
+                # non-trainable components may have a pipe() implementation that refers to dummy
+                # predict and set_annotations methods
                 if hasattr(component, "pipe"):
                     doc_sample = list(component.pipe(doc_sample, batch_size=8))
                 else:
                     doc_sample = [component(doc) for doc in doc_sample]
-        if doc_sample:
-            self.model.initialize(doc_sample)
-        else:
-            self.model.initialize()
-        if pipeline is not None:
-            self.init_multitask_objectives(get_examples, pipeline, sgd=sgd, **self.cfg)
-        return sgd
+        if not doc_sample:
+            for example in islice(get_examples(), 10):
+                doc_sample.append(example.predicted)
+        assert len(doc_sample) > 0, Errors.E923.format(name=self.name)
+        self.model.initialize(doc_sample)
+        if nlp is not None:
+            self.init_multitask_objectives(get_examples, nlp.pipeline)
 
     def to_disk(self, path, exclude=tuple()):
         serializers = {
-            'model': lambda p: (self.model.to_disk(p) if self.model is not True else True),
-            'vocab': lambda p: self.vocab.to_disk(p),
-            'moves': lambda p: self.moves.to_disk(p, exclude=["strings"]),
-            'cfg': lambda p: srsly.write_json(p, self.cfg)
+            "model": lambda p: (self.model.to_disk(p) if self.model is not True else True),
+            "vocab": lambda p: self.vocab.to_disk(p),
+            "moves": lambda p: self.moves.to_disk(p, exclude=["strings"]),
+            "cfg": lambda p: srsly.write_json(p, self.cfg)
         }
         util.to_disk(path, serializers, exclude)
 
     def from_disk(self, path, exclude=tuple()):
         deserializers = {
-            'vocab': lambda p: self.vocab.from_disk(p),
-            'moves': lambda p: self.moves.from_disk(p, exclude=["strings"]),
-            'cfg': lambda p: self.cfg.update(srsly.read_json(p)),
-            'model': lambda p: None,
+            "vocab": lambda p: self.vocab.from_disk(p),
+            "moves": lambda p: self.moves.from_disk(p, exclude=["strings"]),
+            "cfg": lambda p: self.cfg.update(srsly.read_json(p)),
+            "model": lambda p: None,
         }
         util.from_disk(path, deserializers, exclude)
-        if 'model' not in exclude:
+        if "model" not in exclude:
             path = util.ensure_path(path)
-            with (path / 'model').open('rb') as file_:
+            with (path / "model").open("rb") as file_:
                 bytes_data = file_.read()
             try:
                 self._resize()
@@ -498,7 +506,7 @@ cdef class Parser(Pipe):
                     raise ValueError(Errors.E149) from None
         return self
 
-    def _init_gold_batch(self, examples, min_length=5, max_length=500):
+    def _init_gold_batch(self, examples, max_length):
         """Make a square batch, of length equal to the shortest transition
         sequence or a cap. A long
         doc will get multiple states. Let's say we have a doc of length 2*N,
@@ -511,8 +519,7 @@ cdef class Parser(Pipe):
         all_states = self.moves.init_batch([eg.predicted for eg in examples])
         states = []
         golds = []
-        kept = []
-        max_length_seen = 0
+        to_cut = []
         for state, eg in zip(all_states, examples):
             if self.moves.has_gold(eg) and not state.is_final():
                 gold = self.moves.init_gold(state, eg)
@@ -522,30 +529,22 @@ cdef class Parser(Pipe):
                 else:
                     oracle_actions = self.moves.get_oracle_sequence_from_state(
                         state.copy(), gold)
-                    kept.append((eg, state, gold, oracle_actions))
-                    min_length = min(min_length, len(oracle_actions))
-                    max_length_seen = max(max_length, len(oracle_actions))
-        if not kept:
+                    to_cut.append((eg, state, gold, oracle_actions))
+        if not to_cut:
             return states, golds, 0
-        max_length = max(min_length, min(max_length, max_length_seen))
         cdef int clas
-        max_moves = 0
-        for eg, state, gold, oracle_actions in kept:
+        for eg, state, gold, oracle_actions in to_cut:
             for i in range(0, len(oracle_actions), max_length):
                 start_state = state.copy()
-                n_moves = 0
                 for clas in oracle_actions[i:i+max_length]:
                     action = self.moves.c[clas]
                     action.do(state.c, action.label)
                     state.c.push_hist(action.clas)
-                    n_moves += 1
                     if state.is_final():
                         break
-                max_moves = max(max_moves, n_moves)
                 if self.moves.has_gold(eg, start_state.B(0), state.B(0)):
                     states.append(start_state)
                     golds.append(gold)
-                    max_moves = max(max_moves, n_moves)
                 if state.is_final():
                     break
-        return states, golds, max_moves
+        return states, golds, max_length

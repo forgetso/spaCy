@@ -1,15 +1,17 @@
-from typing import Optional, Union, List, Dict, Tuple, Iterable, Any
+from typing import Optional, Union, List, Dict, Tuple, Iterable, Any, Callable, Sequence
 from collections import defaultdict
 from pathlib import Path
 import srsly
 
+from .pipe import Pipe
+from ..training import Example
 from ..language import Language
 from ..errors import Errors
-from ..util import ensure_path, to_disk, from_disk
+from ..util import ensure_path, to_disk, from_disk, SimpleFrozenList
 from ..tokens import Doc, Span
 from ..matcher import Matcher, PhraseMatcher
-from ..scorer import Scorer
-from ..gold import validate_examples
+from ..scorer import get_ner_prf
+from ..training import validate_examples
 
 
 DEFAULT_ENT_ID_SEP = "||"
@@ -25,8 +27,12 @@ PatternType = Dict[str, Union[str, List[Dict[str, Any]]]]
         "overwrite_ents": False,
         "ent_id_sep": DEFAULT_ENT_ID_SEP,
     },
-    scores=["ents_p", "ents_r", "ents_f", "ents_per_type"],
-    default_score_weights={"ents_f": 1.0, "ents_p": 0.0, "ents_r": 0.0},
+    default_score_weights={
+        "ents_f": 1.0,
+        "ents_p": 0.0,
+        "ents_r": 0.0,
+        "ents_per_type": None,
+    },
 )
 def make_entity_ruler(
     nlp: Language,
@@ -46,15 +52,15 @@ def make_entity_ruler(
     )
 
 
-class EntityRuler:
+class EntityRuler(Pipe):
     """The EntityRuler lets you add spans to the `Doc.ents` using token-based
     rules or exact phrase matches. It can be combined with the statistical
     `EntityRecognizer` to boost accuracy, or used on its own to implement a
     purely rule-based entity recognition system. After initialization, the
     component is typically added to the pipeline using `nlp.add_pipe`.
 
-    DOCS: https://spacy.io/api/entityruler
-    USAGE: https://spacy.io/usage/rule-based-matching#entityruler
+    DOCS: https://nightly.spacy.io/api/entityruler
+    USAGE: https://nightly.spacy.io/usage/rule-based-matching#entityruler
     """
 
     def __init__(
@@ -68,7 +74,7 @@ class EntityRuler:
         ent_id_sep: str = DEFAULT_ENT_ID_SEP,
         patterns: Optional[List[PatternType]] = None,
     ) -> None:
-        """Initialize the entitiy ruler. If patterns are supplied here, they
+        """Initialize the entity ruler. If patterns are supplied here, they
         need to be a list of dictionaries with a `"label"` and `"pattern"`
         key. A pattern can either be a token pattern (list) or a phrase pattern
         (string). For example: `{'label': 'ORG', 'pattern': 'Apple'}`.
@@ -88,7 +94,7 @@ class EntityRuler:
             added by the model, overwrite them by matches if necessary.
         ent_id_sep (str): Separator used internally for entity IDs.
 
-        DOCS: https://spacy.io/api/entityruler#init
+        DOCS: https://nightly.spacy.io/api/entityruler#init
         """
         self.nlp = nlp
         self.name = name
@@ -127,13 +133,13 @@ class EntityRuler:
         doc (Doc): The Doc object in the pipeline.
         RETURNS (Doc): The Doc with added entities, if available.
 
-        DOCS: https://spacy.io/api/entityruler#call
+        DOCS: https://nightly.spacy.io/api/entityruler#call
         """
         matches = list(self.matcher(doc)) + list(self.phrase_matcher(doc))
         matches = set(
             [(m_id, start, end) for m_id, start, end in matches if start != end]
         )
-        get_sort_key = lambda m: (m[2] - m[1], m[1])
+        get_sort_key = lambda m: (m[2] - m[1], -m[1])
         matches = sorted(matches, key=get_sort_key, reverse=True)
         entities = list(doc.ents)
         new_entities = []
@@ -165,7 +171,7 @@ class EntityRuler:
 
         RETURNS (set): The string labels.
 
-        DOCS: https://spacy.io/api/entityruler#labels
+        DOCS: https://nightly.spacy.io/api/entityruler#labels
         """
         keys = set(self.token_patterns.keys())
         keys.update(self.phrase_patterns.keys())
@@ -179,13 +185,33 @@ class EntityRuler:
                 all_labels.add(l)
         return tuple(all_labels)
 
+    def initialize(
+        self,
+        get_examples: Callable[[], Iterable[Example]],
+        *,
+        nlp: Optional[Language] = None,
+        patterns: Optional[Sequence[PatternType]] = None,
+    ):
+        """Initialize the pipe for training.
+
+        get_examples (Callable[[], Iterable[Example]]): Function that
+            returns a representative sample of gold-standard Example objects.
+        nlp (Language): The current nlp object the component is part of.
+        patterns Optional[Iterable[PatternType]]: The list of patterns.
+
+        DOCS: https://nightly.spacy.io/api/entityruler#initialize
+        """
+        self.clear()
+        if patterns:
+            self.add_patterns(patterns)
+
     @property
     def ent_ids(self) -> Tuple[str, ...]:
         """All entity ids present in the match patterns `id` properties
 
         RETURNS (set): The string entity ids.
 
-        DOCS: https://spacy.io/api/entityruler#ent_ids
+        DOCS: https://nightly.spacy.io/api/entityruler#ent_ids
         """
         keys = set(self.token_patterns.keys())
         keys.update(self.phrase_patterns.keys())
@@ -203,7 +229,7 @@ class EntityRuler:
 
         RETURNS (list): The original patterns, one dictionary per pattern.
 
-        DOCS: https://spacy.io/api/entityruler#patterns
+        DOCS: https://nightly.spacy.io/api/entityruler#patterns
         """
         all_patterns = []
         for label, patterns in self.token_patterns.items():
@@ -223,14 +249,14 @@ class EntityRuler:
         return all_patterns
 
     def add_patterns(self, patterns: List[PatternType]) -> None:
-        """Add patterns to the entitiy ruler. A pattern can either be a token
+        """Add patterns to the entity ruler. A pattern can either be a token
         pattern (list of dicts) or a phrase pattern (string). For example:
         {'label': 'ORG', 'pattern': 'Apple'}
         {'label': 'GPE', 'pattern': [{'lower': 'san'}, {'lower': 'francisco'}]}
 
         patterns (list): The patterns to add.
 
-        DOCS: https://spacy.io/api/entityruler#add_patterns
+        DOCS: https://nightly.spacy.io/api/entityruler#add_patterns
         """
 
         # disable the nlp components after this one in case they hadn't been initialized / deserialised yet
@@ -314,17 +340,17 @@ class EntityRuler:
 
     def score(self, examples, **kwargs):
         validate_examples(examples, "EntityRuler.score")
-        return Scorer.score_spans(examples, "ents", **kwargs)
+        return get_ner_prf(examples)
 
     def from_bytes(
-        self, patterns_bytes: bytes, *, exclude: Iterable[str] = tuple()
+        self, patterns_bytes: bytes, *, exclude: Iterable[str] = SimpleFrozenList()
     ) -> "EntityRuler":
         """Load the entity ruler from a bytestring.
 
         patterns_bytes (bytes): The bytestring to load.
         RETURNS (EntityRuler): The loaded entity ruler.
 
-        DOCS: https://spacy.io/api/entityruler#from_bytes
+        DOCS: https://nightly.spacy.io/api/entityruler#from_bytes
         """
         cfg = srsly.msgpack_loads(patterns_bytes)
         self.clear()
@@ -341,12 +367,12 @@ class EntityRuler:
             self.add_patterns(cfg)
         return self
 
-    def to_bytes(self, *, exclude: Iterable[str] = tuple()) -> bytes:
+    def to_bytes(self, *, exclude: Iterable[str] = SimpleFrozenList()) -> bytes:
         """Serialize the entity ruler patterns to a bytestring.
 
         RETURNS (bytes): The serialized patterns.
 
-        DOCS: https://spacy.io/api/entityruler#to_bytes
+        DOCS: https://nightly.spacy.io/api/entityruler#to_bytes
         """
         serial = {
             "overwrite": self.overwrite,
@@ -357,7 +383,7 @@ class EntityRuler:
         return srsly.msgpack_dumps(serial)
 
     def from_disk(
-        self, path: Union[str, Path], *, exclude: Iterable[str] = tuple()
+        self, path: Union[str, Path], *, exclude: Iterable[str] = SimpleFrozenList()
     ) -> "EntityRuler":
         """Load the entity ruler from a file. Expects a file containing
         newline-delimited JSON (JSONL) with one entry per line.
@@ -365,7 +391,7 @@ class EntityRuler:
         path (str / Path): The JSONL file to load.
         RETURNS (EntityRuler): The loaded entity ruler.
 
-        DOCS: https://spacy.io/api/entityruler#from_disk
+        DOCS: https://nightly.spacy.io/api/entityruler#from_disk
         """
         path = ensure_path(path)
         self.clear()
@@ -394,14 +420,14 @@ class EntityRuler:
         return self
 
     def to_disk(
-        self, path: Union[str, Path], *, exclude: Iterable[str] = tuple()
+        self, path: Union[str, Path], *, exclude: Iterable[str] = SimpleFrozenList()
     ) -> None:
         """Save the entity ruler patterns to a directory. The patterns will be
         saved as newline-delimited JSON (JSONL).
 
         path (str / Path): The JSONL file to save.
 
-        DOCS: https://spacy.io/api/entityruler#to_disk
+        DOCS: https://nightly.spacy.io/api/entityruler#to_disk
         """
         path = ensure_path(path)
         cfg = {

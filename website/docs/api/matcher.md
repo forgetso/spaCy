@@ -30,20 +30,20 @@ pattern keys correspond to a number of
 [`Token` attributes](/api/token#attributes). The supported attributes for
 rule-based matching are:
 
-| Attribute                              |  Description                                                                                                              |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `ORTH`                                 | The exact verbatim text of a token. ~~str~~                                                                               |
-| `TEXT` <Tag variant="new">2.1</Tag>    | The exact verbatim text of a token. ~~str~~                                                                               |
-| `LOWER`                                | The lowercase form of the token text. ~~str~~                                                                             |
-|  `LENGTH`                              | The length of the token text. ~~int~~                                                                                     |
-|  `IS_ALPHA`, `IS_ASCII`, `IS_DIGIT`    | Token text consists of alphabetic characters, ASCII characters, digits. ~~bool~~                                          |
-|  `IS_LOWER`, `IS_UPPER`, `IS_TITLE`    | Token text is in lowercase, uppercase, titlecase. ~~bool~~                                                                |
-|  `IS_PUNCT`, `IS_SPACE`, `IS_STOP`     | Token is punctuation, whitespace, stop word. ~~bool~~                                                                     |
-|  `LIKE_NUM`, `LIKE_URL`, `LIKE_EMAIL`  | Token text resembles a number, URL, email. ~~bool~~                                                                       |
-|  `POS`, `TAG`, `DEP`, `LEMMA`, `SHAPE` | The token's simple and extended part-of-speech tag, dependency label, lemma, shape. ~~str~~                               |
-| `ENT_TYPE`                             | The token's entity label. ~~str~~                                                                                         |
-| `_` <Tag variant="new">2.1</Tag>       | Properties in [custom extension attributes](/usage/processing-pipelines#custom-components-attributes). ~~Dict[str, Any]~~ |
-| `OP`                                   | Operator or quantifier to determine how often to match a token pattern. ~~str~~                                           |
+| Attribute                                       |  Description                                                                                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ORTH`                                          | The exact verbatim text of a token. ~~str~~                                                                               |
+| `TEXT` <Tag variant="new">2.1</Tag>             | The exact verbatim text of a token. ~~str~~                                                                               |
+| `LOWER`                                         | The lowercase form of the token text. ~~str~~                                                                             |
+|  `LENGTH`                                       | The length of the token text. ~~int~~                                                                                     |
+|  `IS_ALPHA`, `IS_ASCII`, `IS_DIGIT`             | Token text consists of alphabetic characters, ASCII characters, digits. ~~bool~~                                          |
+|  `IS_LOWER`, `IS_UPPER`, `IS_TITLE`             | Token text is in lowercase, uppercase, titlecase. ~~bool~~                                                                |
+|  `IS_PUNCT`, `IS_SPACE`, `IS_STOP`              | Token is punctuation, whitespace, stop word. ~~bool~~                                                                     |
+|  `LIKE_NUM`, `LIKE_URL`, `LIKE_EMAIL`           | Token text resembles a number, URL, email. ~~bool~~                                                                       |
+|  `POS`, `TAG`, `MORPH`, `DEP`, `LEMMA`, `SHAPE` | The token's simple and extended part-of-speech tag, morphological analysis, dependency label, lemma, shape. ~~str~~       |
+| `ENT_TYPE`                                      | The token's entity label. ~~str~~                                                                                         |
+| `_` <Tag variant="new">2.1</Tag>                | Properties in [custom extension attributes](/usage/processing-pipelines#custom-components-attributes). ~~Dict[str, Any]~~ |
+| `OP`                                            | Operator or quantifier to determine how often to match a token pattern. ~~str~~                                           |
 
 Operators and quantifiers define **how often** a token pattern should be
 matched:
@@ -61,7 +61,7 @@ matched:
 | `!` | Negate the pattern, by requiring it to match exactly 0 times.    |
 | `?` | Make the pattern optional, by allowing it to match 0 or 1 times. |
 | `+` | Require the pattern to match 1 or more times.                    |
-| `*` | Allow the pattern to match zero or more times.                   |
+| `*` | Allow the pattern to match 0 or more times.                   |
 
 Token patterns can also map to a **dictionary of properties** instead of a
 single value to indicate whether the expected value is a member of a list or how
@@ -79,6 +79,8 @@ it compares to another value.
 | -------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `IN`                       | Attribute value is member of a list. ~~Any~~                                                            |
 | `NOT_IN`                   | Attribute value is _not_ member of a list. ~~Any~~                                                      |
+| `ISSUBSET`                 | Attribute values (for `MORPH`) are a subset of a list. ~~Any~~                                          |
+| `ISSUPERSET`               | Attribute values (for `MORPH`) are a superset of a list. ~~Any~~                                        |
 | `==`, `>=`, `<=`, `>`, `<` | Attribute value is equal, greater or equal, smaller or equal, greater or smaller. ~~Union[int, float]~~ |
 
 ## Matcher.\_\_init\_\_ {#init tag="method"}
@@ -116,31 +118,12 @@ Find all token sequences matching the supplied patterns on the `Doc` or `Span`.
 > matches = matcher(doc)
 > ```
 
-| Name        | Description                                                                                                                                                                                             |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `doclike`   | The `Doc` or `Span` to match over. ~~Union[Doc, Span]~~                                                                                                                                                 |
-| **RETURNS** | A list of `(match_id, start, end)` tuples, describing the matches. A match tuple describes a span `doc[start:end`]. The `match_id` is the ID of the added match pattern. ~~List[Tuple[int, int, int]]~~ |
-
-## Matcher.pipe {#pipe tag="method"}
-
-Match a stream of documents, yielding them in turn.
-
-> #### Example
->
-> ```python
-> from spacy.matcher import Matcher
-> matcher = Matcher(nlp.vocab)
-> for doc in matcher.pipe(docs, batch_size=50):
->     pass
-> ```
-
-| Name                                          | Description                                                                                                                                                                                                                         |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs`                                        | A stream of documents or spans. ~~Iterable[Union[Doc, Span]]~~                                                                                                                                                                      |
-| `batch_size`                                  | The number of documents to accumulate into a working set. ~~int~~                                                                                                                                                                   |
-| `return_matches` <Tag variant="new">2.1</Tag> | Yield the match lists along with the docs, making results `(doc, matches)` tuples. ~~bool~~                                                                                                                                         |
-| `as_tuples`                                   | Interpret the input stream as `(doc, context)` tuples, and yield `(result, context)` tuples out. If both `return_matches` and `as_tuples` are `True`, the output will be a sequence of `((doc, matches), context)` tuples. ~~bool~~ |
-| **YIELDS**                                    | Documents, in order. ~~Union[Doc, Tuple[Doc, Any], Tuple[Tuple[Doc, Any], Any]]~~                                                                                                                                                   |
+| Name                                  | Description                                                                                                                                                                                                                                                                                              |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `doclike`                             | The `Doc` or `Span` to match over. ~~Union[Doc, Span]~~                                                                                                                                                                                                                                                  |
+| _keyword-only_                        |                                                                                                                                                                                                                                                                                                          |
+| `as_spans` <Tag variant="new">3</Tag> | Instead of tuples, return a list of [`Span`](/api/span) objects of the matches, with the `match_id` assigned as the span label. Defaults to `False`. ~~bool~~                                                                                                                                            |
+| **RETURNS**                           | A list of `(match_id, start, end)` tuples, describing the matches. A match tuple describes a span `doc[start:end`]. The `match_id` is the ID of the added match pattern. If `as_spans` is set to `True`, a list of `Span` objects is returned instead. ~~Union[List[Tuple[int, int, int]], List[Span]]~~ |
 
 ## Matcher.\_\_len\_\_ {#len tag="method" new="2"}
 

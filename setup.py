@@ -4,7 +4,6 @@ import sys
 import platform
 from distutils.command.build_ext import build_ext
 from distutils.sysconfig import get_python_inc
-from distutils import ccompiler, msvccompiler
 import numpy
 from pathlib import Path
 import shutil
@@ -24,7 +23,7 @@ Options.docstrings = True
 
 PACKAGES = find_packages()
 MOD_NAMES = [
-    "spacy.gold.example",
+    "spacy.training.example",
     "spacy.parts_of_speech",
     "spacy.strings",
     "spacy.lexeme",
@@ -38,6 +37,7 @@ MOD_NAMES = [
     "spacy.pipeline.multitask",
     "spacy.pipeline.ner",
     "spacy.pipeline.pipe",
+    "spacy.pipeline.trainable_pipe",
     "spacy.pipeline.sentencizer",
     "spacy.pipeline.senter",
     "spacy.pipeline.tagger",
@@ -49,7 +49,8 @@ MOD_NAMES = [
     "spacy.pipeline._parser_internals.stateclass",
     "spacy.pipeline._parser_internals.transition_system",
     "spacy.tokenizer",
-    "spacy.gold.gold_io",
+    "spacy.training.align",
+    "spacy.training.gold_io",
     "spacy.tokens.doc",
     "spacy.tokens.span",
     "spacy.tokens.token",
@@ -195,13 +196,7 @@ def setup_package():
     include_dirs = [
         get_python_inc(plat_specific=True),
         numpy.get_include(),
-        str(ROOT / "include"),
     ]
-    if (
-        ccompiler.new_compiler().compiler_type == "msvc"
-        and msvccompiler.get_build_version() == 9
-    ):
-        include_dirs.append(str(ROOT / "include" / "msvc9"))
     ext_modules = []
     for name in MOD_NAMES:
         mod_path = name.replace(".", "/") + ".pyx"

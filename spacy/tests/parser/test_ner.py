@@ -1,10 +1,13 @@
 import pytest
+from numpy.testing import assert_equal
+from spacy.attrs import ENT_IOB
+
 from spacy import util
 from spacy.lang.en import English
 from spacy.language import Language
 from spacy.lookups import Lookups
 from spacy.pipeline._parser_internals.ner import BiluoPushDown
-from spacy.gold import Example
+from spacy.training import Example
 from spacy.tokens import Doc
 from spacy.vocab import Vocab
 import logging
@@ -168,7 +171,7 @@ def test_accept_blocked_token():
     ner2 = nlp2.create_pipe("ner", config=config)
 
     # set "New York" to a blocked entity
-    doc2.ents = [(0, 3, 5)]
+    doc2.set_ents([], blocked=[doc2[3:5]], default="unmodified")
     assert [token.ent_iob_ for token in doc2] == ["", "", "", "B", "B"]
     assert [token.ent_type_ for token in doc2] == ["", "", "", "", ""]
 
@@ -202,7 +205,7 @@ def test_train_empty():
         train_examples.append(Example.from_dict(nlp.make_doc(t[0]), t[1]))
     ner = nlp.add_pipe("ner", last=True)
     ner.add_label("PERSON")
-    nlp.begin_training()
+    nlp.initialize()
     for itn in range(2):
         losses = {}
         batches = util.minibatch(train_examples, size=8)
@@ -213,7 +216,7 @@ def test_train_empty():
 def test_overwrite_token():
     nlp = English()
     nlp.add_pipe("ner")
-    nlp.begin_training()
+    nlp.initialize()
     # The untrained NER will predict O for each token
     doc = nlp("I live in New York")
     assert [token.ent_iob_ for token in doc] == ["O", "O", "O", "O", "O"]
@@ -235,7 +238,7 @@ def test_empty_ner():
     nlp = English()
     ner = nlp.add_pipe("ner")
     ner.add_label("MY_LABEL")
-    nlp.begin_training()
+    nlp.initialize()
     doc = nlp("John is watching the news about Croatia's elections")
     # if this goes wrong, the initialization of the parser's upper layer is probably broken
     result = ["O", "O", "O", "O", "O", "O", "O", "O", "O"]
@@ -254,7 +257,7 @@ def test_ruler_before_ner():
     # 2: untrained NER - should set everything else to O
     untrained_ner = nlp.add_pipe("ner")
     untrained_ner.add_label("MY_LABEL")
-    nlp.begin_training()
+    nlp.initialize()
     doc = nlp("This is Antti Korhonen speaking in Finland")
     expected_iobs = ["B", "O", "O", "O", "O", "O", "O"]
     expected_types = ["THING", "", "", "", "", "", ""]
@@ -269,7 +272,7 @@ def test_ner_before_ruler():
     # 1: untrained NER - should set everything to O
     untrained_ner = nlp.add_pipe("ner", name="uner")
     untrained_ner.add_label("MY_LABEL")
-    nlp.begin_training()
+    nlp.initialize()
 
     # 2 : Entity Ruler - should set "this" to B and keep everything else O
     patterns = [{"label": "THING", "pattern": "This"}]
@@ -290,7 +293,7 @@ def test_block_ner():
     nlp.add_pipe("blocker", config={"start": 2, "end": 5})
     untrained_ner = nlp.add_pipe("ner")
     untrained_ner.add_label("MY_LABEL")
-    nlp.begin_training()
+    nlp.initialize()
     doc = nlp("This is Antti L Korhonen speaking in Finland")
     expected_iobs = ["O", "O", "B", "B", "B", "O", "O", "O"]
     expected_types = ["", "", "", "", "", "", "", ""]
@@ -307,7 +310,7 @@ def test_overfitting_IO():
         train_examples.append(Example.from_dict(nlp.make_doc(text), annotations))
         for ent in annotations.get("entities"):
             ner.add_label(ent[2])
-    optimizer = nlp.begin_training()
+    optimizer = nlp.initialize()
 
     for i in range(50):
         losses = {}
@@ -332,6 +335,19 @@ def test_overfitting_IO():
         assert ents2[0].text == "London"
         assert ents2[0].label_ == "LOC"
 
+    # Make sure that running pipe twice, or comparing to call, always amounts to the same predictions
+    texts = [
+        "Just a sentence.",
+        "Then one more sentence about London.",
+        "Here is another one.",
+        "I like London.",
+    ]
+    batch_deps_1 = [doc.to_array([ENT_IOB]) for doc in nlp.pipe(texts)]
+    batch_deps_2 = [doc.to_array([ENT_IOB]) for doc in nlp.pipe(texts)]
+    no_batch_deps = [doc.to_array([ENT_IOB]) for doc in [nlp(text) for text in texts]]
+    assert_equal(batch_deps_1, batch_deps_2)
+    assert_equal(batch_deps_1, no_batch_deps)
+
 
 def test_ner_warns_no_lookups(caplog):
     nlp = English()
@@ -340,13 +356,13 @@ def test_ner_warns_no_lookups(caplog):
     assert not len(nlp.vocab.lookups)
     nlp.add_pipe("ner")
     with caplog.at_level(logging.DEBUG):
-        nlp.begin_training()
+        nlp.initialize()
         assert "W033" in caplog.text
     caplog.clear()
     nlp.vocab.lookups.add_table("lexeme_norm")
     nlp.vocab.lookups.get_table("lexeme_norm")["a"] = "A"
     with caplog.at_level(logging.DEBUG):
-        nlp.begin_training()
+        nlp.initialize()
         assert "W033" not in caplog.text
 
 
@@ -358,5 +374,5 @@ class BlockerComponent1:
         self.name = name
 
     def __call__(self, doc):
-        doc.ents = [(0, self.start, self.end)]
+        doc.set_ents([], blocked=[doc[self.start : self.end]], default="unmodified")
         return doc

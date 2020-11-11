@@ -1,9 +1,7 @@
 import pytest
-from mock import Mock
-from spacy.matcher import DependencyMatcher
 from spacy.tokens import Doc, Span, DocBin
-from spacy.gold import Example
-from spacy.gold.converters.conllu2docs import conllu2docs
+from spacy.training import Example
+from spacy.training.converters.conllu_to_docs import conllu_to_docs
 from spacy.lang.en import English
 from spacy.kb import KnowledgeBase
 from spacy.vocab import Vocab
@@ -12,7 +10,7 @@ from spacy.util import ensure_path, load_model_from_path
 import numpy
 import pickle
 
-from ..util import get_doc, make_tempdir
+from ..util import make_tempdir
 
 
 def test_issue4528(en_vocab):
@@ -36,32 +34,6 @@ def test_issue4528(en_vocab):
 def test_gold_misaligned(en_tokenizer, text, words):
     doc = en_tokenizer(text)
     Example.from_dict(doc, {"words": words})
-
-
-def test_issue4590(en_vocab):
-    """Test that matches param in on_match method are the same as matches run with no on_match method"""
-    pattern = [
-        {"SPEC": {"NODE_NAME": "jumped"}, "PATTERN": {"ORTH": "jumped"}},
-        {
-            "SPEC": {"NODE_NAME": "fox", "NBOR_RELOP": ">", "NBOR_NAME": "jumped"},
-            "PATTERN": {"ORTH": "fox"},
-        },
-        {
-            "SPEC": {"NODE_NAME": "quick", "NBOR_RELOP": ".", "NBOR_NAME": "jumped"},
-            "PATTERN": {"ORTH": "fox"},
-        },
-    ]
-
-    on_match = Mock()
-    matcher = DependencyMatcher(en_vocab)
-    matcher.add("pattern", on_match, pattern)
-    text = "The quick brown fox jumped over the lazy fox"
-    heads = [3, 2, 1, 1, 0, -1, 2, 1, -3]
-    deps = ["det", "amod", "amod", "nsubj", "ROOT", "prep", "det", "amod", "pobj"]
-    doc = get_doc(en_vocab, text.split(), heads=heads, deps=deps)
-    matches = matcher(doc)
-    on_match_args = on_match.call_args
-    assert on_match_args[0][3] == matches
 
 
 def test_issue4651_with_phrase_matcher_attr():
@@ -110,7 +82,7 @@ def test_issue4651_without_phrase_matcher_attr():
 
 def test_issue4665():
     """
-    conllu2json should not raise an exception if the HEAD column contains an
+    conllu_to_docs should not raise an exception if the HEAD column contains an
     underscore
     """
     input_data = """
@@ -133,7 +105,7 @@ def test_issue4665():
 17	.	_	PUNCT	.	_	_	punct	_	_
 18	]	_	PUNCT	-RRB-	_	_	punct	_	_
 """
-    conllu2docs(input_data)
+    conllu_to_docs(input_data)
 
 
 def test_issue4674():
@@ -161,6 +133,7 @@ def test_issue4674():
     assert kb2.get_size_entities() == 1
 
 
+@pytest.mark.skip(reason="API change: disable just disables, new exclude arg")
 def test_issue4707():
     """Tests that disabled component names are also excluded from nlp.from_disk
     by default when loading a model.
@@ -207,7 +180,7 @@ def test_issue4725_2():
     vocab.set_vector("dog", data[1])
     nlp = English(vocab=vocab)
     nlp.add_pipe("ner")
-    nlp.begin_training()
+    nlp.initialize()
     docs = ["Kurt is in London."] * 10
     for _ in nlp.pipe(docs, batch_size=2, n_process=2):
         pass

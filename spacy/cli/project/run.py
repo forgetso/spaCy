@@ -1,10 +1,14 @@
-from typing import Optional, List, Dict, Sequence, Any
+from typing import Optional, List, Dict, Sequence, Any, Iterable
 from pathlib import Path
 from wasabi import msg
 import sys
 import srsly
 
+from ... import about
+from ...git_info import GIT_VERSION
 from ...util import working_dir, run_command, split_command, is_cwd, join_command
+from ...util import SimpleFrozenList, is_minor_version_match, ENV_VARS
+from ...util import check_bool_env_var
 from .._util import PROJECT_FILE, PROJECT_LOCK, load_project_config, get_hash
 from .._util import get_checksum, project_cli, Arg, Opt, COMMAND
 
@@ -23,6 +27,8 @@ def project_run_cli(
     name is specified, all commands in the workflow are run, in order. If
     commands define dependencies and/or outputs, they will only be re-run if
     state has changed.
+
+    DOCS: https://nightly.spacy.io/api/cli#project-run
     """
     if show_help or not subcommand:
         print_run_help(project_dir, subcommand)
@@ -56,14 +62,16 @@ def project_run(
         for dep in cmd.get("deps", []):
             if not (project_dir / dep).exists():
                 err = f"Missing dependency specified by command '{subcommand}': {dep}"
+                err_help = "Maybe you forgot to run the 'project assets' command or a previous step?"
                 err_kwargs = {"exits": 1} if not dry else {}
-                msg.fail(err, **err_kwargs)
+                msg.fail(err, err_help, **err_kwargs)
+        check_spacy_commit = check_bool_env_var(ENV_VARS.PROJECT_USE_GIT_VERSION)
         with working_dir(project_dir) as current_dir:
-            rerun = check_rerun(current_dir, cmd)
+            msg.divider(subcommand)
+            rerun = check_rerun(current_dir, cmd, check_spacy_commit=check_spacy_commit)
             if not rerun and not force:
                 msg.info(f"Skipping '{cmd['name']}': nothing changed")
             else:
-                msg.divider(subcommand)
                 run_commands(cmd["script"], dry=dry)
                 if not dry:
                     update_lockfile(current_dir, cmd)
@@ -101,6 +109,9 @@ def print_run_help(project_dir: Path, subcommand: Optional[str] = None) -> None:
             print(f"For command details, run: {help_cmd}")
     else:
         print("")
+        title = config.get("title")
+        if title:
+            print(f"{title}\n")
         if config_commands:
             print(f"Available commands in {PROJECT_FILE}")
             print(f"Usage: {COMMAND} project run [COMMAND] {project_loc}")
@@ -112,7 +123,9 @@ def print_run_help(project_dir: Path, subcommand: Optional[str] = None) -> None:
 
 
 def run_commands(
-    commands: List[str] = tuple(), silent: bool = False, dry: bool = False,
+    commands: Iterable[str] = SimpleFrozenList(),
+    silent: bool = False,
+    dry: bool = False,
 ) -> None:
     """Run a sequence of commands in a subprocess, in order.
 
@@ -136,7 +149,7 @@ def run_commands(
         if not silent:
             print(f"Running command: {join_command(command)}")
         if not dry:
-            run_command(command)
+            run_command(command, capture=False)
 
 
 def validate_subcommand(
@@ -162,12 +175,19 @@ def validate_subcommand(
         )
 
 
-def check_rerun(project_dir: Path, command: Dict[str, Any]) -> bool:
+def check_rerun(
+    project_dir: Path,
+    command: Dict[str, Any],
+    *,
+    check_spacy_version: bool = True,
+    check_spacy_commit: bool = False,
+) -> bool:
     """Check if a command should be rerun because its settings or inputs/outputs
     changed.
 
     project_dir (Path): The current project directory.
     command (Dict[str, Any]): The command, as defined in the project.yml.
+    strict_version (bool):
     RETURNS (bool): Whether to re-run the command.
     """
     lock_path = project_dir / PROJECT_LOCK
@@ -180,10 +200,23 @@ def check_rerun(project_dir: Path, command: Dict[str, Any]) -> bool:
     # Always run commands with no outputs (otherwise they'd always be skipped)
     if not entry.get("outs", []):
         return True
+    # Always rerun if spaCy version or commit hash changed
+    spacy_v = entry.get("spacy_version")
+    commit = entry.get("spacy_git_version")
+    if check_spacy_version and not is_minor_version_match(spacy_v, about.__version__):
+        info = f"({spacy_v} in {PROJECT_LOCK}, {about.__version__} current)"
+        msg.info(f"Re-running '{command['name']}': spaCy minor version changed {info}")
+        return True
+    if check_spacy_commit and commit != GIT_VERSION:
+        info = f"({commit} in {PROJECT_LOCK}, {GIT_VERSION} current)"
+        msg.info(f"Re-running '{command['name']}': spaCy commit changed {info}")
+        return True
     # If the entry in the lockfile matches the lockfile entry that would be
     # generated from the current command, we don't rerun because it means that
     # all inputs/outputs, hashes and scripts are the same and nothing changed
-    return get_hash(get_lock_entry(project_dir, command)) != get_hash(entry)
+    lock_entry = get_lock_entry(project_dir, command)
+    exclude = ["spacy_version", "spacy_git_version"]
+    return get_hash(lock_entry, exclude=exclude) != get_hash(entry, exclude=exclude)
 
 
 def update_lockfile(project_dir: Path, command: Dict[str, Any]) -> None:
@@ -222,6 +255,8 @@ def get_lock_entry(project_dir: Path, command: Dict[str, Any]) -> Dict[str, Any]
         "script": command["script"],
         "deps": deps,
         "outs": [*outs, *outs_nc],
+        "spacy_version": about.__version__,
+        "spacy_git_version": GIT_VERSION,
     }
 
 

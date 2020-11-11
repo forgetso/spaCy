@@ -45,7 +45,7 @@ architectures and their arguments and hyperparameters.
 | `model` | The model to use. Defaults to [HashEmbedCNN](/api/architectures#HashEmbedCNN). ~~Model[List[Doc], List[Floats2d]~~ |
 
 ```python
-https://github.com/explosion/spaCy/blob/develop/spacy/pipeline/tok2vec.py
+%%GITHUB_SPACY/spacy/pipeline/tok2vec.py
 ```
 
 ## Tok2Vec.\_\_init\_\_ {#init tag="method"}
@@ -123,7 +123,7 @@ and [`set_annotations`](/api/tok2vec#set_annotations) methods.
 | `batch_size`   | The number of documents to buffer. Defaults to `128`. ~~int~~ |
 | **YIELDS**     | The processed documents in order. ~~Doc~~                     |
 
-## Tok2Vec.begin_training {#begin_training tag="method"}
+## Tok2Vec.initialize {#initialize tag="method"}
 
 Initialize the component for training and return an
 [`Optimizer`](https://thinc.ai/docs/api-optimizers). `get_examples` should be a
@@ -132,26 +132,25 @@ examples are used to **initialize the model** of the component and can either be
 the full training data or a representative sample. Initialization includes
 validating the network,
 [inferring missing shapes](https://thinc.ai/docs/usage-models#validation) and
-setting up the label scheme based on the data.
+setting up the label scheme based on the data. This method is typically called
+by [`Language.initialize`](/api/language#initialize).
 
 > #### Example
 >
 > ```python
 > tok2vec = nlp.add_pipe("tok2vec")
-> optimizer = tok2vec.begin_training(lambda: [], pipeline=nlp.pipeline)
+> tok2vec.initialize(lambda: [], nlp=nlp)
 > ```
 
 | Name           | Description                                                                                                                           |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `get_examples` | Function that returns gold-standard annotations in the form of [`Example`](/api/example) objects. ~~Callable[[], Iterable[Example]]~~ |
-| _keyword-only_ |                                                                                                                                       |  |
-| `pipeline`     | Optional list of pipeline components that this component is part of. ~~Optional[List[Tuple[str, Callable[[Doc], Doc]]]]~~             |
-| `sgd`          | An optimizer. Will be created via [`create_optimizer`](#create_optimizer) if not set. ~~Optional[Optimizer]~~                         |
-| **RETURNS**    | The optimizer. ~~Optimizer~~                                                                                                          |
+| _keyword-only_ |                                                                                                                                       |
+| `nlp`          | The current `nlp` object. Defaults to `None`. ~~Optional[Language]~~                                                                  |
 
 ## Tok2Vec.predict {#predict tag="method"}
 
-Apply the component's model to a batch of [`Doc`](/api/doc) objects, without
+Apply the component's model to a batch of [`Doc`](/api/doc) objects without
 modifying them.
 
 > #### Example
@@ -193,14 +192,14 @@ Delegates to [`predict`](/api/tok2vec#predict).
 >
 > ```python
 > tok2vec = nlp.add_pipe("tok2vec")
-> optimizer = nlp.begin_training()
+> optimizer = nlp.initialize()
 > losses = tok2vec.update(examples, sgd=optimizer)
 > ```
 
 | Name              | Description                                                                                                                        |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `examples`        | A batch of [`Example`](/api/example) objects to learn from. ~~Iterable[Example]~~                                                  |
-| _keyword-only_    |                                                                                                                                    |  |
+| _keyword-only_    |                                                                                                                                    |
 | `drop`            | The dropout rate. ~~float~~                                                                                                        |
 | `set_annotations` | Whether or not to update the `Example` objects with the predictions, delegating to [`set_annotations`](#set_annotations). ~~bool~~ |
 | `sgd`             | An optimizer. Will be created via [`create_optimizer`](#create_optimizer) if not set. ~~Optional[Optimizer]~~                      |
@@ -224,7 +223,7 @@ Create an optimizer for the pipeline component.
 
 ## Tok2Vec.use_params {#use_params tag="method, contextmanager"}
 
-Modify the pipe's model, to use the given parameter values. At the end of the
+Modify the pipe's model to use the given parameter values. At the end of the
 context, the original parameters are restored.
 
 > #### Example

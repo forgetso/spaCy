@@ -30,14 +30,20 @@ to predict. Otherwise, you could try using a "one-shot learning" approach using
 
 <Accordion title="What’s the difference between word vectors and language models?" id="vectors-vs-language-models">
 
-The key difference between [word vectors](#word-vectors) and contextual language
-models such as [transformers](#transformers) is that word vectors model
-**lexical types**, rather than _tokens_. If you have a list of terms with no
-context around them, a transformer model like BERT can't really help you. BERT
-is designed to understand language **in context**, which isn't what you have. A
-word vectors table will be a much better fit for your task. However, if you do
-have words in context — whole sentences or paragraphs of running text — word
-vectors will only provide a very rough approximation of what the text is about.
+[Transformers](#transformers) are large and powerful neural networks that give
+you better accuracy, but are harder to deploy in production, as they require a
+GPU to run effectively. [Word vectors](#word-vectors) are a slightly older
+technique that can give your models a smaller improvement in accuracy, and can
+also provide some additional capabilities.
+
+The key difference between word-vectors and contextual language models such as
+transformers is that word vectors model **lexical types**, rather than _tokens_.
+If you have a list of terms with no context around them, a transformer model
+like BERT can't really help you. BERT is designed to understand language **in
+context**, which isn't what you have. A word vectors table will be a much better
+fit for your task. However, if you do have words in context – whole sentences or
+paragraphs of running text – word vectors will only provide a very rough
+approximation of what the text is about.
 
 Word vectors are also very computationally efficient, as they map a word to a
 vector with a single indexing operation. Word vectors are therefore useful as a
@@ -107,7 +113,62 @@ transformer outputs to the
 [`Doc._.trf_data`](/api/transformer#custom_attributes) extension attribute,
 giving you access to them after the pipeline has finished running.
 
-<!-- TODO: show example of implementation via config, side by side -->
+### Example: Shared vs. independent config {#embedding-layers-config}
+
+The [config system](/usage/training#config) lets you express model configuration
+for both shared and independent embedding layers. The shared setup uses a single
+[`Tok2Vec`](/api/tok2vec) component with the
+[Tok2Vec](/api/architectures#Tok2Vec) architecture. All other components, like
+the entity recognizer, use a
+[Tok2VecListener](/api/architectures#Tok2VecListener) layer as their model's
+`tok2vec` argument, which connects to the `tok2vec` component model.
+
+```ini
+### Shared {highlight="1-2,4-5,19-20"}
+[components.tok2vec]
+factory = "tok2vec"
+
+[components.tok2vec.model]
+@architectures = "spacy.Tok2Vec.v1"
+
+[components.tok2vec.model.embed]
+@architectures = "spacy.MultiHashEmbed.v1"
+
+[components.tok2vec.model.encode]
+@architectures = "spacy.MaxoutWindowEncoder.v1"
+
+[components.ner]
+factory = "ner"
+
+[components.ner.model]
+@architectures = "spacy.TransitionBasedParser.v1"
+
+[components.ner.model.tok2vec]
+@architectures = "spacy.Tok2VecListener.v1"
+```
+
+In the independent setup, the entity recognizer component defines its own
+[Tok2Vec](/api/architectures#Tok2Vec) instance. Other components will do the
+same. This makes them fully independent and doesn't require an upstream
+[`Tok2Vec`](/api/tok2vec) component to be present in the pipeline.
+
+```ini
+### Independent {highlight="7-8"}
+[components.ner]
+factory = "ner"
+
+[components.ner.model]
+@architectures = "spacy.TransitionBasedParser.v1"
+
+[components.ner.model.tok2vec]
+@architectures = "spacy.Tok2Vec.v1"
+
+[components.ner.model.tok2vec.embed]
+@architectures = "spacy.MultiHashEmbed.v1"
+
+[components.ner.model.tok2vec.encode]
+@architectures = "spacy.MaxoutWindowEncoder.v1"
+```
 
 <!-- TODO: Once rehearsal is tested, mention it here. -->
 
@@ -124,7 +185,7 @@ interoperates with [PyTorch](https://pytorch.org) and the
 giving you access to thousands of pretrained models for your pipelines. There
 are many [great guides](http://jalammar.github.io/illustrated-transformer/) to
 transformer models, but for practical purposes, you can simply think of them as
-a drop-in replacement that let you achieve **higher accuracy** in exchange for
+drop-in replacements that let you achieve **higher accuracy** in exchange for
 **higher training and runtime costs**.
 
 ### Setup and installation {#transformers-installation}
@@ -155,8 +216,7 @@ in `/opt/nvidia/cuda`, you would run:
 ```bash
 ### Installation with CUDA
 $ export CUDA_PATH="/opt/nvidia/cuda"
-$ pip install cupy-cuda102
-$ pip install spacy-transformers
+$ pip install -U %%SPACY_PKG_NAME[cuda102,transformers]%%SPACY_PKG_FLAGS
 ```
 
 ### Runtime usage {#transformers-runtime}
@@ -172,45 +232,50 @@ transformers as subnetworks directly, you can also use them via the
 
 The `Transformer` component sets the
 [`Doc._.trf_data`](/api/transformer#custom_attributes) extension attribute,
-which lets you access the transformers outputs at runtime.
+which lets you access the transformers outputs at runtime. The trained
+transformer-based [pipelines](/models) provided by spaCy end on `_trf`, e.g.
+[`en_core_web_trf`](/models/en#en_core_web_trf).
 
 ```cli
-$ python -m spacy download en_core_trf_lg
+$ python -m spacy download en_core_web_trf
 ```
 
 ```python
 ### Example
 import spacy
-from thinc.api import use_pytorch_for_gpu_memory, require_gpu
+from thinc.api import set_gpu_allocator, require_gpu
 
 # Use the GPU, with memory allocations directed via PyTorch.
 # This prevents out-of-memory errors that would otherwise occur from competing
 # memory pools.
-use_pytorch_for_gpu_memory()
+set_gpu_allocator("pytorch")
 require_gpu(0)
 
-nlp = spacy.load("en_core_trf_lg")
+nlp = spacy.load("en_core_web_trf")
 for doc in nlp.pipe(["some text", "some other text"]):
     tokvecs = doc._.trf_data.tensors[-1]
 ```
 
 You can also customize how the [`Transformer`](/api/transformer) component sets
-annotations onto the [`Doc`](/api/doc), by customizing the `annotation_setter`.
-This callback will be called with the raw input and output data for the whole
-batch, along with the batch of `Doc` objects, allowing you to implement whatever
-you need. The annotation setter is called with a batch of [`Doc`](/api/doc)
-objects and a [`FullTransformerBatch`](/api/transformer#fulltransformerbatch)
-containing the transformers data for the batch.
+annotations onto the [`Doc`](/api/doc) by specifying a custom
+`set_extra_annotations` function. This callback will be called with the raw
+input and output data for the whole batch, along with the batch of `Doc`
+objects, allowing you to implement whatever you need. The annotation setter is
+called with a batch of [`Doc`](/api/doc) objects and a
+[`FullTransformerBatch`](/api/transformer#fulltransformerbatch) containing the
+transformers data for the batch.
 
 ```python
 def custom_annotation_setter(docs, trf_data):
-    # TODO:
-    ...
+    doc_data = list(trf_data.doc_data)
+    for doc, data in zip(docs, doc_data):
+        doc._.custom_attr = data
 
-nlp = spacy.load("en_core_trf_lg")
-nlp.get_pipe("transformer").annotation_setter = custom_annotation_setter
+nlp = spacy.load("en_core_web_trf")
+nlp.get_pipe("transformer").set_extra_annotations = custom_annotation_setter
 doc = nlp("This is a text")
-print()  # TODO:
+assert isinstance(doc._.custom_attr, TransformerData)
+print(doc._.custom_attr.tensors)
 ```
 
 ### Training usage {#transformers-training}
@@ -223,8 +288,7 @@ of objects by referring to creation functions, including functions you register
 yourself. For details on how to get started with training your own model, check
 out the [training quickstart](/usage/training#quickstart).
 
-<!-- TODO:
-<Project id="en_core_trf_lg">
+<!-- TODO: <Project id="pipelines/transformers">
 
 The easiest way to get started is to clone a transformers-based project
 template. Swap in your data, edit the settings and hyperparameters and train,
@@ -254,7 +318,7 @@ component:
 >         get_spans=get_doc_spans,
 >         tokenizer_config={"use_fast": True},
 >     ),
->     annotation_setter=null_annotation_setter,
+>     set_extra_annotations=null_annotation_setter,
 >     max_batch_items=4096,
 > )
 > ```
@@ -271,9 +335,9 @@ name = "bert-base-cased"
 tokenizer_config = {"use_fast": true}
 
 [components.transformer.model.get_spans]
-@span_getters = "doc_spans.v1"
+@span_getters = "spacy-transformers.doc_spans.v1"
 
-[components.transformer.annotation_setter]
+[components.transformer.set_extra_annotations]
 @annotation_setters = "spacy-transformers.null_annotation_setter.v1"
 
 ```
@@ -288,9 +352,9 @@ in a block starts with `@`, it's **resolved to a function** and all other
 settings are passed to the function as arguments. In this case, `name`,
 `tokenizer_config` and `get_spans`.
 
-`get_spans` is a function that takes a batch of `Doc` object and returns lists
+`get_spans` is a function that takes a batch of `Doc` objects and returns lists
 of potentially overlapping `Span` objects to process by the transformer. Several
-[built-in functions](/api/transformer#span-getters) are available – for example,
+[built-in functions](/api/transformer#span_getters) are available – for example,
 to process the whole document or individual sentences. When the config is
 resolved, the function is created and passed into the model as an argument.
 
@@ -309,15 +373,20 @@ all defaults.
 
 To change any of the settings, you can edit the `config.cfg` and re-run the
 training. To change any of the functions, like the span getter, you can replace
-the name of the referenced function – e.g. `@span_getters = "sent_spans.v1"` to
-process sentences. You can also register your own functions using the
-`span_getters` registry:
+the name of the referenced function – e.g.
+`@span_getters = "spacy-transformers.sent_spans.v1"` to process sentences. You
+can also register your own functions using the
+[`span_getters` registry](/api/top-level#registry). For instance, the following
+custom function returns [`Span`](/api/span) objects following sentence
+boundaries, unless a sentence succeeds a certain amount of tokens, in which case
+subsentences of at most `max_length` tokens are returned.
 
 > #### config.cfg
 >
 > ```ini
 > [components.transformer.model.get_spans]
 > @span_getters = "custom_sent_spans"
+> max_length = 25
 > ```
 
 ```python
@@ -325,18 +394,29 @@ process sentences. You can also register your own functions using the
 import spacy_transformers
 
 @spacy_transformers.registry.span_getters("custom_sent_spans")
-def configure_custom_sent_spans():
-    # TODO: write custom example
-    def get_sent_spans(docs):
-        return [list(doc.sents) for doc in docs]
+def configure_custom_sent_spans(max_length: int):
+    def get_custom_sent_spans(docs):
+        spans = []
+        for doc in docs:
+            spans.append([])
+            for sent in doc.sents:
+                start = 0
+                end = max_length
+                while end <= len(sent):
+                    spans[-1].append(sent[start:end])
+                    start += max_length
+                    end += max_length
+                if start < len(sent):
+                    spans[-1].append(sent[start:len(sent)])
+        return spans
 
-    return get_sent_spans
+    return get_custom_sent_spans
 ```
 
 To resolve the config during training, spaCy needs to know about your custom
 function. You can make it available via the `--code` argument that can point to
 a Python file. For more details on training with custom code, see the
-[training documentation](/usage/training#custom-code).
+[training documentation](/usage/training#custom-functions).
 
 ```cli
 python -m spacy train ./config.cfg --code ./code.py
@@ -357,8 +437,8 @@ The same idea applies to task models that power the **downstream components**.
 Most of spaCy's built-in model creation functions support a `tok2vec` argument,
 which should be a Thinc layer of type ~~Model[List[Doc], List[Floats2d]]~~. This
 is where we'll plug in our transformer model, using the
-[Tok2VecListener](/api/architectures#Tok2VecListener) layer, which sneakily
-delegates to the `Transformer` pipeline component.
+[TransformerListener](/api/architectures#TransformerListener) layer, which
+sneakily delegates to the `Transformer` pipeline component.
 
 ```ini
 ### config.cfg (excerpt) {highlight="12"}
@@ -367,24 +447,25 @@ factory = "ner"
 
 [nlp.pipeline.ner.model]
 @architectures = "spacy.TransitionBasedParser.v1"
-nr_feature_tokens = 3
+state_type = "ner"
+extra_state_tokens = false
 hidden_width = 128
 maxout_pieces = 3
 use_upper = false
 
 [nlp.pipeline.ner.model.tok2vec]
-@architectures = "spacy-transformers.Tok2VecListener.v1"
+@architectures = "spacy-transformers.TransformerListener.v1"
 grad_factor = 1.0
 
 [nlp.pipeline.ner.model.tok2vec.pooling]
 @layers = "reduce_mean.v1"
 ```
 
-The [Tok2VecListener](/api/architectures#Tok2VecListener) layer expects a
-[pooling layer](https://thinc.ai/docs/api-layers#reduction-ops) as the argument
-`pooling`, which needs to be of type ~~Model[Ragged, Floats2d]~~. This layer
-determines how the vector for each spaCy token will be computed from the zero or
-more source rows the token is aligned against. Here we use the
+The [TransformerListener](/api/architectures#TransformerListener) layer expects
+a [pooling layer](https://thinc.ai/docs/api-layers#reduction-ops) as the
+argument `pooling`, which needs to be of type ~~Model[Ragged, Floats2d]~~. This
+layer determines how the vector for each spaCy token will be computed from the
+zero or more source rows the token is aligned against. Here we use the
 [`reduce_mean`](https://thinc.ai/docs/api-layers#reduce_mean) layer, which
 averages the wordpiece rows. We could instead use
 [`reduce_max`](https://thinc.ai/docs/api-layers#reduce_max), or a custom
@@ -402,7 +483,32 @@ training.
 
 ## Static vectors {#static-vectors}
 
-<!-- TODO: write -->
+If your pipeline includes a **word vectors table**, you'll be able to use the
+`.similarity()` method on the [`Doc`](/api/doc), [`Span`](/api/span),
+[`Token`](/api/token) and [`Lexeme`](/api/lexeme) objects. You'll also be able
+to access the vectors using the `.vector` attribute, or you can look up one or
+more vectors directly using the [`Vocab`](/api/vocab) object. Pipelines with
+word vectors can also **use the vectors as features** for the statistical
+models, which can **improve the accuracy** of your components.
+
+Word vectors in spaCy are "static" in the sense that they are not learned
+parameters of the statistical models, and spaCy itself does not feature any
+algorithms for learning word vector tables. You can train a word vectors table
+using tools such as [Gensim](https://radimrehurek.com/gensim/),
+[FastText](https://fasttext.cc/) or
+[GloVe](https://nlp.stanford.edu/projects/glove/), or download existing
+pretrained vectors. The [`init vectors`](/api/cli#init-vectors) command lets you
+convert vectors for use with spaCy and will give you a directory you can load or
+refer to in your [training configs](/usage/training#config).
+
+<Infobox title="Word vectors and similarity" emoji="📖">
+
+For more details on loading word vectors into spaCy, using them for similarity
+and improving word vector coverage by truncating and pruning the vectors, see
+the usage guide on
+[word vectors and similarity](/usage/linguistic-features#vectors-similarity).
+
+</Infobox>
 
 ### Using word vectors in your models {#word-vectors-models}
 
@@ -410,17 +516,15 @@ Many neural network models are able to use word vector tables as additional
 features, which sometimes results in significant improvements in accuracy.
 spaCy's built-in embedding layer,
 [MultiHashEmbed](/api/architectures#MultiHashEmbed), can be configured to use
-word vector tables using the `also_use_static_vectors` flag. This setting is
-also available on the [MultiHashEmbedCNN](/api/architectures#MultiHashEmbedCNN)
-layer, which builds the default token-to-vector encoding architecture.
+word vector tables using the `include_static_vectors` flag.
 
 ```ini
 [tagger.model.tok2vec.embed]
 @architectures = "spacy.MultiHashEmbed.v1"
 width = 128
-rows = 7000
-also_embed_subwords = true
-also_use_static_vectors = true
+attrs = ["LOWER","PREFIX","SUFFIX","SHAPE"]
+rows = [5000,2500,2500,2500]
+include_static_vectors = true
 ```
 
 <Infobox title="How it works" emoji="💡">
@@ -482,6 +586,8 @@ embeddings.
 ```python
 from thinc.api import add, chain, remap_ids, Embed
 from spacy.ml.staticvectors import StaticVectors
+from spacy.ml.featureextractor import FeatureExtractor
+from spacy.util import registry
 
 @registry.architectures("my_example.MyEmbedding.v1")
 def MyCustomVectors(
@@ -502,4 +608,151 @@ def MyCustomVectors(
 
 ## Pretraining {#pretraining}
 
-<!-- TODO: write -->
+The [`spacy pretrain`](/api/cli#pretrain) command lets you initialize your
+models with **information from raw text**. Without pretraining, the models for
+your components will usually be initialized randomly. The idea behind
+pretraining is simple: random probably isn't optimal, so if we have some text to
+learn from, we can probably find a way to get the model off to a better start.
+
+Pretraining uses the same [`config.cfg`](/usage/training#config) file as the
+regular training, which helps keep the settings and hyperparameters consistent.
+The additional `[pretraining]` section has several configuration subsections
+that are familiar from the training block: the `[pretraining.batcher]`,
+`[pretraining.optimizer]` and `[pretraining.corpus]` all work the same way and
+expect the same types of objects, although for pretraining your corpus does not
+need to have any annotations, so you will often use a different reader, such as
+the [`JsonlCorpus`](/api/top-level#jsonlcorpus).
+
+> #### Raw text format
+>
+> The raw text can be provided in spaCy's
+> [binary `.spacy` format](/api/data-formats#training) consisting of serialized
+> `Doc` objects or as a JSONL (newline-delimited JSON) with a key `"text"` per
+> entry. This allows the data to be read in line by line, while also allowing
+> you to include newlines in the texts.
+>
+> ```json
+> {"text": "Can I ask where you work now and what you do, and if you enjoy it?"}
+> {"text": "They may just pull out of the Seattle market completely, at least until they have autonomous vehicles."}
+> ```
+>
+> You can also use your own custom corpus loader instead.
+
+You can add a `[pretraining]` block to your config by setting the
+`--pretraining` flag on [`init config`](/api/cli#init-config) or
+[`init fill-config`](/api/cli#init-fill-config):
+
+```cli
+$ python -m spacy init fill-config config.cfg config_pretrain.cfg --pretraining
+```
+
+You can then run [`spacy pretrain`](/api/cli#pretrain) with the updated config
+and pass in optional config overrides, like the path to the raw text file:
+
+```cli
+$ python -m spacy pretrain config_pretrain.cfg ./output --paths.raw text.jsonl
+```
+
+The following defaults are used for the `[pretraining]` block and merged into
+your existing config when you run [`init config`](/api/cli#init-config) or
+[`init fill-config`](/api/cli#init-fill-config) with `--pretraining`. If needed,
+you can [configure](#pretraining-configure) the settings and hyperparameters or
+change the [objective](#pretraining-details).
+
+```ini
+%%GITHUB_SPACY/spacy/default_config_pretraining.cfg
+```
+
+### How pretraining works {#pretraining-details}
+
+The impact of [`spacy pretrain`](/api/cli#pretrain) varies, but it will usually
+be worth trying if you're **not using a transformer** model and you have
+**relatively little training data** (for instance, fewer than 5,000 sentences).
+A good rule of thumb is that pretraining will generally give you a similar
+accuracy improvement to using word vectors in your model. If word vectors have
+given you a 10% error reduction, pretraining with spaCy might give you another
+10%, for a 20% error reduction in total.
+
+The [`spacy pretrain`](/api/cli#pretrain) command will take a **specific
+subnetwork** within one of your components, and add additional layers to build a
+network for a temporary task that forces the model to learn something about
+sentence structure and word cooccurrence statistics. Pretraining produces a
+**binary weights file** that can be loaded back in at the start of training. The
+weights file specifies an initial set of weights. Training then proceeds as
+normal.
+
+You can only pretrain one subnetwork from your pipeline at a time, and the
+subnetwork must be typed ~~Model[List[Doc], List[Floats2d]]~~ (i.e. it has to be
+a "tok2vec" layer). The most common workflow is to use the
+[`Tok2Vec`](/api/tok2vec) component to create a shared token-to-vector layer for
+several components of your pipeline, and apply pretraining to its whole model.
+
+#### Configuring the pretraining {#pretraining-configure}
+
+The [`spacy pretrain`](/api/cli#pretrain) command is configured using the
+`[pretraining]` section of your [config file](/usage/training#config). The
+`component` and `layer` settings tell spaCy how to **find the subnetwork** to
+pretrain. The `layer` setting should be either the empty string (to use the
+whole model), or a
+[node reference](https://thinc.ai/docs/usage-models#model-state). Most of
+spaCy's built-in model architectures have a reference named `"tok2vec"` that
+will refer to the right layer.
+
+```ini
+### config.cfg
+# 1. Use the whole model of the "tok2vec" component
+[pretraining]
+component = "tok2vec"
+layer = ""
+
+# 2. Pretrain the "tok2vec" node of the "textcat" component
+[pretraining]
+component = "textcat"
+layer = "tok2vec"
+```
+
+#### Pretraining objectives {#pretraining-details}
+
+Two pretraining objectives are available, both of which are variants of the
+cloze task [Devlin et al. (2018)](https://arxiv.org/abs/1810.04805) introduced
+for BERT. The objective can be defined and configured via the
+`[pretraining.objective]` config block.
+
+> ```ini
+> ### Characters objective
+> [pretraining.objective]
+> type = "characters"
+> n_characters = 4
+> ```
+>
+> ```ini
+> ### Vectors objective
+> [pretraining.objective]
+> type = "vectors"
+> loss = "cosine"
+> ```
+
+- **Characters:** The `"characters"` objective asks the model to predict some
+  number of leading and trailing UTF-8 bytes for the words. For instance,
+  setting `n_characters = 2`, the model will try to predict the first two and
+  last two characters of the word.
+
+- **Vectors:** The `"vectors"` objective asks the model to predict the word's
+  vector, from a static embeddings table. This requires a word vectors model to
+  be trained and loaded. The vectors objective can optimize either a cosine or
+  an L2 loss. We've generally found cosine loss to perform better.
+
+These pretraining objectives use a trick that we term **language modelling with
+approximate outputs (LMAO)**. The motivation for the trick is that predicting an
+exact word ID introduces a lot of incidental complexity. You need a large output
+layer, and even then, the vocabulary is too large, which motivates tokenization
+schemes that do not align to actual word boundaries. At the end of training, the
+output layer will be thrown away regardless: we just want a task that forces the
+network to model something about word cooccurrence statistics. Predicting
+leading and trailing characters does that more than adequately, as the exact
+word sequence could be recovered with high accuracy if the initial and trailing
+characters are predicted accurately. With the vectors objective, the pretraining
+uses the embedding space learned by an algorithm such as
+[GloVe](https://nlp.stanford.edu/projects/glove/) or
+[Word2vec](https://code.google.com/archive/p/word2vec/), allowing the model to
+focus on the contextual modelling we actual care about.

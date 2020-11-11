@@ -1,6 +1,9 @@
 import pytest
+from numpy.testing import assert_equal
+from spacy.attrs import TAG
+
 from spacy import util
-from spacy.gold import Example
+from spacy.training import Example
 from spacy.lang.en import English
 from spacy.language import Language
 
@@ -15,25 +18,73 @@ def test_label_types():
         tagger.add_label(9)
 
 
-def test_tagger_begin_training_tag_map():
-    """Test that Tagger.begin_training() without gold tuples does not clobber
+def test_tagger_initialize_tag_map():
+    """Test that Tagger.initialize() without gold tuples does not clobber
     the tag map."""
     nlp = Language()
     tagger = nlp.add_pipe("tagger")
     orig_tag_count = len(tagger.labels)
     tagger.add_label("A")
-    nlp.begin_training()
+    nlp.initialize()
     assert orig_tag_count + 1 == len(nlp.get_pipe("tagger").labels)
 
 
 TAGS = ("N", "V", "J")
 
-MORPH_RULES = {"V": {"like": {"lemma": "luck"}}}
-
 TRAIN_DATA = [
     ("I like green eggs", {"tags": ["N", "V", "J", "N"]}),
     ("Eat blue ham", {"tags": ["V", "J", "N"]}),
 ]
+
+
+def test_no_label():
+    nlp = Language()
+    nlp.add_pipe("tagger")
+    with pytest.raises(ValueError):
+        nlp.initialize()
+
+
+def test_no_resize():
+    nlp = Language()
+    tagger = nlp.add_pipe("tagger")
+    tagger.add_label("N")
+    tagger.add_label("V")
+    assert tagger.labels == ("N", "V")
+    nlp.initialize()
+    assert tagger.model.get_dim("nO") == 2
+    # this throws an error because the tagger can't be resized after initialization
+    with pytest.raises(ValueError):
+        tagger.add_label("J")
+
+
+def test_implicit_label():
+    nlp = Language()
+    nlp.add_pipe("tagger")
+    train_examples = []
+    for t in TRAIN_DATA:
+        train_examples.append(Example.from_dict(nlp.make_doc(t[0]), t[1]))
+    nlp.initialize(get_examples=lambda: train_examples)
+
+
+def test_initialize_examples():
+    nlp = Language()
+    tagger = nlp.add_pipe("tagger")
+    train_examples = []
+    for tag in TAGS:
+        tagger.add_label(tag)
+    for t in TRAIN_DATA:
+        train_examples.append(Example.from_dict(nlp.make_doc(t[0]), t[1]))
+    # you shouldn't really call this more than once, but for testing it should be fine
+    nlp.initialize()
+    nlp.initialize(get_examples=lambda: train_examples)
+    with pytest.raises(TypeError):
+        nlp.initialize(get_examples=lambda: None)
+    with pytest.raises(TypeError):
+        nlp.initialize(get_examples=lambda: train_examples[0])
+    with pytest.raises(TypeError):
+        nlp.initialize(get_examples=lambda: [])
+    with pytest.raises(TypeError):
+        nlp.initialize(get_examples=train_examples)
 
 
 def test_overfitting_IO():
@@ -43,9 +94,8 @@ def test_overfitting_IO():
     train_examples = []
     for t in TRAIN_DATA:
         train_examples.append(Example.from_dict(nlp.make_doc(t[0]), t[1]))
-    for tag in TAGS:
-        tagger.add_label(tag)
-    optimizer = nlp.begin_training()
+    optimizer = nlp.initialize(get_examples=lambda: train_examples)
+    assert tagger.model.get_dim("nO") == len(TAGS)
 
     for i in range(50):
         losses = {}
@@ -69,3 +119,23 @@ def test_overfitting_IO():
         assert doc2[1].tag_ is "V"
         assert doc2[2].tag_ is "J"
         assert doc2[3].tag_ is "N"
+
+    # Make sure that running pipe twice, or comparing to call, always amounts to the same predictions
+    texts = [
+        "Just a sentence.",
+        "I like green eggs.",
+        "Here is another one.",
+        "I eat ham.",
+    ]
+    batch_deps_1 = [doc.to_array([TAG]) for doc in nlp.pipe(texts)]
+    batch_deps_2 = [doc.to_array([TAG]) for doc in nlp.pipe(texts)]
+    no_batch_deps = [doc.to_array([TAG]) for doc in [nlp(text) for text in texts]]
+    assert_equal(batch_deps_1, batch_deps_2)
+    assert_equal(batch_deps_1, no_batch_deps)
+
+
+def test_tagger_requires_labels():
+    nlp = English()
+    nlp.add_pipe("tagger")
+    with pytest.raises(ValueError):
+        nlp.initialize()

@@ -2,10 +2,10 @@ import pytest
 from spacy.language import Language
 from spacy.lang.en import English
 from spacy.lang.de import German
+from spacy.pipeline.tok2vec import DEFAULT_TOK2VEC_MODEL
 from spacy.tokens import Doc
 from spacy.util import registry, SimpleFrozenDict, combine_score_weights
-from thinc.api import Model, Linear
-from thinc.config import ConfigValidationError
+from thinc.api import Model, Linear, ConfigValidationError
 from pydantic import StrictInt, StrictStr
 
 from ..util import make_tempdir
@@ -157,15 +157,10 @@ def test_pipe_class_component_model():
     name = "test_class_component_model"
     default_config = {
         "model": {
-            "@architectures": "spacy.TextCatEnsemble.v1",
-            "exclusive_classes": False,
-            "pretrained_vectors": None,
-            "width": 64,
-            "embed_size": 2000,
-            "window_size": 1,
-            "conv_depth": 2,
-            "ngram_size": 1,
-            "dropout": None,
+            "@architectures": "spacy.TextCatEnsemble.v2",
+            "tok2vec": DEFAULT_TOK2VEC_MODEL,
+            "linear_model": {"@architectures": "spacy.TextCatBOW.v1", "exclusive_classes": False, "ngram_size": 1,
+                      "no_output_layer": False},
         },
         "value1": 10,
     }
@@ -345,12 +340,13 @@ def test_language_factories_invalid():
             [{"a": 100, "b": 400}, {"c": 0.5, "d": 0.5}],
             {"a": 0.1, "b": 0.4, "c": 0.25, "d": 0.25},
         ),
-        ([{"a": 0.5, "b": 0.5}, {"b": 1.0}], {"a": 0.25, "b": 0.75},),
+        ([{"a": 0.5, "b": 0.5}, {"b": 1.0}], {"a": 0.25, "b": 0.75}),
+        ([{"a": 0.0, "b": 0.0}, {"c": 0.0}], {"a": 0.0, "b": 0.0, "c": 0.0}),
     ],
 )
 def test_language_factories_combine_score_weights(weights, expected):
     result = combine_score_weights(weights)
-    assert sum(result.values()) in (0.99, 1.0)
+    assert sum(result.values()) in (0.99, 1.0, 0.0)
     assert result == expected
 
 
@@ -359,12 +355,8 @@ def test_language_factories_scores():
     func = lambda nlp, name: lambda doc: doc
     weights1 = {"a1": 0.5, "a2": 0.5}
     weights2 = {"b1": 0.2, "b2": 0.7, "b3": 0.1}
-    Language.factory(
-        f"{name}1", scores=list(weights1), default_score_weights=weights1, func=func,
-    )
-    Language.factory(
-        f"{name}2", scores=list(weights2), default_score_weights=weights2, func=func,
-    )
+    Language.factory(f"{name}1", default_score_weights=weights1, func=func)
+    Language.factory(f"{name}2", default_score_weights=weights2, func=func)
     meta1 = Language.get_factory_meta(f"{name}1")
     assert meta1.default_score_weights == weights1
     meta2 = Language.get_factory_meta(f"{name}2")
@@ -376,6 +368,21 @@ def test_language_factories_scores():
     cfg = nlp.config["training"]
     expected_weights = {"a1": 0.25, "a2": 0.25, "b1": 0.1, "b2": 0.35, "b3": 0.05}
     assert cfg["score_weights"] == expected_weights
+    # Test with custom defaults
+    config = nlp.config.copy()
+    config["training"]["score_weights"]["a1"] = 0.0
+    config["training"]["score_weights"]["b3"] = 1.0
+    nlp = English.from_config(config)
+    score_weights = nlp.config["training"]["score_weights"]
+    expected = {"a1": 0.0, "a2": 0.5, "b1": 0.03, "b2": 0.12, "b3": 0.34}
+    assert score_weights == expected
+    # Test with null values
+    config = nlp.config.copy()
+    config["training"]["score_weights"]["a1"] = None
+    nlp = English.from_config(config)
+    score_weights = nlp.config["training"]["score_weights"]
+    expected = {"a1": None, "a2": 0.5, "b1": 0.03, "b2": 0.12, "b3": 0.35}
+    assert score_weights == expected
 
 
 def test_pipe_factories_from_source():
@@ -438,3 +445,44 @@ def test_pipe_factories_from_source_config():
     config = nlp.config["components"]["custom"]
     assert config["factory"] == name
     assert config["arg"] == "world"
+
+
+def test_pipe_factories_decorator_idempotent():
+    """Check that decorator can be run multiple times if the function is the
+    same. This is especially relevant for live reloading because we don't
+    want spaCy to raise an error if a module registering components is reloaded.
+    """
+    name = "test_pipe_factories_decorator_idempotent"
+    func = lambda nlp, name: lambda doc: doc
+    for i in range(5):
+        Language.factory(name, func=func)
+    nlp = Language()
+    nlp.add_pipe(name)
+    Language.factory(name, func=func)
+    # Make sure it also works for component decorator, which creates the
+    # factory function
+    name2 = f"{name}2"
+    func2 = lambda doc: doc
+    for i in range(5):
+        Language.component(name2, func=func2)
+    nlp = Language()
+    nlp.add_pipe(name)
+    Language.component(name2, func=func2)
+
+
+def test_pipe_factories_config_excludes_nlp():
+    """Test that the extra values we temporarily add to component config
+    blocks/functions are removed and not copied around.
+    """
+    name = "test_pipe_factories_config_excludes_nlp"
+    func = lambda nlp, name: lambda doc: doc
+    Language.factory(name, func=func)
+    config = {
+        "nlp": {"lang": "en", "pipeline": [name]},
+        "components": {name: {"factory": name}},
+    }
+    nlp = English.from_config(config)
+    assert nlp.pipe_names == [name]
+    pipe_cfg = nlp.get_pipe_config(name)
+    pipe_cfg == {"factory": name}
+    assert nlp._pipe_configs[name] == {"factory": name}

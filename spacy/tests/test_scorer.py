@@ -1,11 +1,10 @@
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
 import pytest
 from pytest import approx
-from spacy.gold import Example
-from spacy.gold.iob_utils import biluo_tags_from_offsets
+from spacy.training import Example
+from spacy.training.iob_utils import offsets_to_biluo_tags
 from spacy.scorer import Scorer, ROCAUCScore
 from spacy.scorer import _roc_auc_score, _roc_curve
-from .util import get_doc
 from spacy.lang.en import English
 from spacy.tokens import Doc
 
@@ -77,10 +76,9 @@ def tagged_doc():
     for i in range(len(tags)):
         doc[i].tag_ = tags[i]
         doc[i].pos_ = pos[i]
-        doc[i].morph_ = morphs[i]
+        doc[i].set_morph(morphs[i])
         if i > 0:
             doc[i].is_sent_start = False
-    doc.is_tagged = True
     return doc
 
 
@@ -138,11 +136,8 @@ def test_las_per_type(en_vocab):
     scorer = Scorer()
     examples = []
     for input_, annot in test_las_apple:
-        doc = get_doc(
-            en_vocab,
-            words=input_.split(" "),
-            heads=([h - i for i, h in enumerate(annot["heads"])]),
-            deps=annot["deps"],
+        doc = Doc(
+            en_vocab, words=input_.split(" "), heads=annot["heads"], deps=annot["deps"]
         )
         gold = {"heads": annot["heads"], "deps": annot["deps"]}
         example = Example.from_dict(doc, gold)
@@ -162,11 +157,8 @@ def test_las_per_type(en_vocab):
     scorer = Scorer()
     examples = []
     for input_, annot in test_las_apple:
-        doc = get_doc(
-            en_vocab,
-            words=input_.split(" "),
-            heads=([h - i for i, h in enumerate(annot["heads"])]),
-            deps=annot["deps"],
+        doc = Doc(
+            en_vocab, words=input_.split(" "), heads=annot["heads"], deps=annot["deps"]
         )
         gold = {"heads": annot["heads"], "deps": annot["deps"]}
         doc[0].dep_ = "compound"
@@ -189,12 +181,10 @@ def test_ner_per_type(en_vocab):
     scorer = Scorer()
     examples = []
     for input_, annot in test_ner_cardinal:
-        doc = get_doc(
-            en_vocab,
-            words=input_.split(" "),
-            ents=[[0, 1, "CARDINAL"], [2, 3, "CARDINAL"]],
+        doc = Doc(
+            en_vocab, words=input_.split(" "), ents=["B-CARDINAL", "O", "B-CARDINAL"]
         )
-        entities = biluo_tags_from_offsets(doc, annot["entities"])
+        entities = offsets_to_biluo_tags(doc, annot["entities"])
         example = Example.from_dict(doc, {"entities": entities})
         # a hack for sentence boundaries
         example.predicted[1].is_sent_start = False
@@ -214,12 +204,12 @@ def test_ner_per_type(en_vocab):
     scorer = Scorer()
     examples = []
     for input_, annot in test_ner_apple:
-        doc = get_doc(
+        doc = Doc(
             en_vocab,
             words=input_.split(" "),
-            ents=[[0, 1, "ORG"], [5, 6, "GPE"], [6, 7, "ORG"]],
+            ents=["B-ORG", "O", "O", "O", "O", "B-GPE", "B-ORG", "O", "O", "O"],
         )
-        entities = biluo_tags_from_offsets(doc, annot["entities"])
+        entities = offsets_to_biluo_tags(doc, annot["entities"])
         example = Example.from_dict(doc, {"entities": entities})
         # a hack for sentence boundaries
         example.predicted[1].is_sent_start = False
@@ -250,7 +240,7 @@ def test_tag_score(tagged_doc):
     gold = {
         "tags": [t.tag_ for t in tagged_doc],
         "pos": [t.pos_ for t in tagged_doc],
-        "morphs": [t.morph_ for t in tagged_doc],
+        "morphs": [str(t.morph) for t in tagged_doc],
         "sent_starts": [1 if t.is_sent_start else -1 for t in tagged_doc],
     }
     example = Example.from_dict(tagged_doc, gold)
@@ -267,7 +257,7 @@ def test_tag_score(tagged_doc):
     tags[0] = "NN"
     pos = [t.pos_ for t in tagged_doc]
     pos[1] = "X"
-    morphs = [t.morph_ for t in tagged_doc]
+    morphs = [str(t.morph) for t in tagged_doc]
     morphs[1] = "Number=sing"
     morphs[2] = "Number=plur"
     gold = {
@@ -285,6 +275,62 @@ def test_tag_score(tagged_doc):
     assert results["morph_per_feat"]["NounType"]["f"] == 1.0
     assert results["morph_per_feat"]["Poss"]["f"] == 0.0
     assert results["morph_per_feat"]["Number"]["f"] == approx(0.72727272)
+
+
+def test_partial_annotation(en_tokenizer):
+    pred_doc = en_tokenizer("a b c d e")
+    pred_doc[0].tag_ = "A"
+    pred_doc[0].pos_ = "X"
+    pred_doc[0].set_morph("Feat=Val")
+    pred_doc[0].dep_ = "dep"
+
+    # unannotated reference
+    ref_doc = en_tokenizer("a b c d e")
+    ref_doc.has_unknown_spaces = True
+    example = Example(pred_doc, ref_doc)
+    scorer = Scorer()
+    scores = scorer.score([example])
+    for key in scores:
+        # cats doesn't have an unset state
+        if key.startswith("cats"):
+            continue
+        assert scores[key] == None
+
+    # partially annotated reference, not overlapping with predicted annotation
+    ref_doc = en_tokenizer("a b c d e")
+    ref_doc.has_unknown_spaces = True
+    ref_doc[1].tag_ = "A"
+    ref_doc[1].pos_ = "X"
+    ref_doc[1].set_morph("Feat=Val")
+    ref_doc[1].dep_ = "dep"
+    example = Example(pred_doc, ref_doc)
+    scorer = Scorer()
+    scores = scorer.score([example])
+    assert scores["token_acc"] == None
+    assert scores["tag_acc"] == 0.0
+    assert scores["pos_acc"] == 0.0
+    assert scores["morph_acc"] == 0.0
+    assert scores["dep_uas"] == 1.0
+    assert scores["dep_las"] == 0.0
+    assert scores["sents_f"] == None
+
+    # partially annotated reference, overlapping with predicted annotation
+    ref_doc = en_tokenizer("a b c d e")
+    ref_doc.has_unknown_spaces = True
+    ref_doc[0].tag_ = "A"
+    ref_doc[0].pos_ = "X"
+    ref_doc[1].set_morph("Feat=Val")
+    ref_doc[1].dep_ = "dep"
+    example = Example(pred_doc, ref_doc)
+    scorer = Scorer()
+    scores = scorer.score([example])
+    assert scores["token_acc"] == None
+    assert scores["tag_acc"] == 1.0
+    assert scores["pos_acc"] == 1.0
+    assert scores["morph_acc"] == 0.0
+    assert scores["dep_uas"] == 1.0
+    assert scores["dep_las"] == 0.0
+    assert scores["sents_f"] == None
 
 
 def test_roc_auc_score():
@@ -344,7 +390,8 @@ def test_roc_auc_score():
     score = ROCAUCScore()
     score.score_set(0.25, 0)
     score.score_set(0.75, 0)
-    assert score.score == -float("inf")
+    with pytest.raises(ValueError):
+        s = score.score
 
     y_true = [1, 1]
     y_score = [0.25, 0.75]
@@ -354,4 +401,5 @@ def test_roc_auc_score():
     score = ROCAUCScore()
     score.score_set(0.25, 1)
     score.score_set(0.75, 1)
-    assert score.score == -float("inf")
+    with pytest.raises(ValueError):
+        s = score.score

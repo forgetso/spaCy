@@ -24,8 +24,8 @@ from ..strings import get_string_id
 cdef class Retokenizer:
     """Helper class for doc.retokenize() context manager.
 
-    DOCS: https://spacy.io/api/doc#retokenize
-    USAGE: https://spacy.io/usage/linguistic-features#retokenization
+    DOCS: https://nightly.spacy.io/api/doc#retokenize
+    USAGE: https://nightly.spacy.io/usage/linguistic-features#retokenization
     """
     cdef Doc doc
     cdef list merges
@@ -47,7 +47,7 @@ cdef class Retokenizer:
         span (Span): The span to merge.
         attrs (dict): Attributes to set on the merged token.
 
-        DOCS: https://spacy.io/api/doc#retokenizer.merge
+        DOCS: https://nightly.spacy.io/api/doc#retokenizer.merge
         """
         if (span.start, span.end) in self._spans_to_merge:
             return
@@ -73,7 +73,7 @@ cdef class Retokenizer:
         attrs (dict): Attributes to set on all split tokens. Attribute names
             mapped to list of per-token attribute values.
 
-        DOCS: https://spacy.io/api/doc#retokenizer.split
+        DOCS: https://nightly.spacy.io/api/doc#retokenizer.split
         """
         if ''.join(orths) != token.text:
             raise ValueError(Errors.E117.format(new=''.join(orths), old=token.text))
@@ -169,6 +169,8 @@ def _merge(Doc doc, merges):
         spans.append(span)
         # House the new merged token where it starts
         token = &doc.c[start]
+        start_ent_iob = doc.c[start].ent_iob
+        start_ent_type = doc.c[start].ent_type
         # Initially set attributes to attributes of span root
         token.tag = doc.c[span.root.i].tag
         token.pos = doc.c[span.root.i].pos
@@ -181,8 +183,8 @@ def _merge(Doc doc, merges):
             merged_iob = 3
             # If start token is I-ENT and previous token is of the same
             # type, then I-ENT (could check I-ENT from start to span root)
-            if doc.c[start].ent_iob == 1 and start > 0 \
-                    and doc.c[start].ent_type == token.ent_type \
+            if start_ent_iob == 1 and start > 0 \
+                    and start_ent_type == token.ent_type \
                     and doc.c[start - 1].ent_type == token.ent_type:
                 merged_iob = 1
         token.ent_iob = merged_iob
@@ -272,7 +274,7 @@ def _merge(Doc doc, merges):
     for i in range(doc.length):
         doc.c[i].head -= i
     # Set the left/right children, left/right edges
-    set_children_from_heads(doc.c, doc.length)
+    set_children_from_heads(doc.c, 0, doc.length)
     # Make sure ent_iob remains consistent
     make_iob_consistent(doc.c, doc.length)
     # Return the merged Python object
@@ -334,6 +336,7 @@ def _split(Doc doc, int token_index, orths, heads, attrs):
         lex = doc.vocab.get(doc.mem, orth)
         token.lex = lex
         token.lemma = 0  # reset lemma
+        token.norm = 0  # reset norm
         if to_process_tensor:
             # setting the tensors of the split tokens to array of zeros
             doc.tensor[token_index + i] = xp.zeros((1,doc.tensor.shape[1]), dtype="float32")
@@ -379,7 +382,7 @@ def _split(Doc doc, int token_index, orths, heads, attrs):
     for i in range(doc.length):
         doc.c[i].head -= i
     # set children from head
-    set_children_from_heads(doc.c, doc.length)
+    set_children_from_heads(doc.c, 0, doc.length)
 
 
 def _validate_extensions(extensions):
@@ -406,7 +409,6 @@ cdef make_iob_consistent(TokenC* tokens, int length):
 def normalize_token_attrs(Vocab vocab, attrs):
     if "_" in attrs:  # Extension attributes
         extensions = attrs["_"]
-        print("EXTENSIONS", extensions)
         _validate_extensions(extensions)
         attrs = {key: value for key, value in attrs.items() if key != "_"}
         attrs = intify_attrs(attrs, strings_map=vocab.strings)
