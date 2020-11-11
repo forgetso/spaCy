@@ -8,6 +8,7 @@ import tarfile
 import gzip
 import zipfile
 import tqdm
+import ctypes
 
 from ..lookups import Lookups
 from ..vectors import Vectors
@@ -37,9 +38,17 @@ def init_nlp(config: Config, *, use_gpu: int = -1) -> "Language":
     T = registry.resolve(config["training"], schema=ConfigSchemaTraining)
     dot_names = [T["train_corpus"], T["dev_corpus"]]
     if not isinstance(T["train_corpus"], str):
-        raise ConfigValidationError(desc=Errors.E897.format(field="training.train_corpus", type=type(T["train_corpus"])))
+        raise ConfigValidationError(
+            desc=Errors.E897.format(
+                field="training.train_corpus", type=type(T["train_corpus"])
+            )
+        )
     if not isinstance(T["dev_corpus"], str):
-        raise ConfigValidationError(desc=Errors.E897.format(field="training.dev_corpus", type=type(T["dev_corpus"])))
+        raise ConfigValidationError(
+            desc=Errors.E897.format(
+                field="training.dev_corpus", type=type(T["dev_corpus"])
+            )
+        )
     train_corpus, dev_corpus = resolve_dot_names(config, dot_names)
     optimizer = T["optimizer"]
     # Components that shouldn't be updated during training
@@ -202,25 +211,67 @@ def convert_vectors(
         nlp.vocab.prune_vectors(prune)
 
 
-def read_vectors(vectors_loc: Path, truncate_vectors: int):
+def read_vectors(vectors_loc, truncate_vectors=0):
     f = open_file(vectors_loc)
     f = ensure_shape(f)
     shape = tuple(int(size) for size in next(f).split())
     if truncate_vectors >= 1:
         shape = (truncate_vectors, shape[1])
-    vectors_data = numpy.zeros(shape=shape, dtype="f")
-    vectors_keys = []
+    # inspect the first line to see if the vectors are float or binary format
+    word, pieces, dtype = inspect_vector_type(next(f), shape)
+    vectors_data = numpy.zeros(shape=shape, dtype=dtype)
+    vectors_data[0] = numpy.asarray(pieces, dtype=dtype)
+    vectors_keys = [word]
+    read_vector = read_float_vector
+    if dtype == numpy.int8:
+        read_vector = read_binary_vector
     for i, line in enumerate(tqdm.tqdm(f)):
-        line = line.rstrip()
-        pieces = line.rsplit(" ", vectors_data.shape[1])
-        word = pieces.pop(0)
+        line_num = i + 1
+        word, pieces = read_vector(line, shape)
         if len(pieces) != vectors_data.shape[1]:
-            raise ValueError(Errors.E094.format(line_num=i, loc=vectors_loc))
-        vectors_data[i] = numpy.asarray(pieces, dtype="f")
+            raise ValueError(Errors.E094.format(line_num=line_num, loc=vectors_loc))
+        vectors_data[line_num] = numpy.asarray(pieces, dtype=dtype)
         vectors_keys.append(word)
         if i == truncate_vectors - 1:
             break
     return vectors_data, vectors_keys
+
+
+def inspect_vector_type(line, shape):
+    dtype = "f"
+    word, pieces = read_float_vector(line)
+    length = len(pieces)
+    if length != shape[1]:
+        word, pieces = read_binary_vector(line)
+        if len(pieces) == shape[1]:
+            dtype = numpy.int8
+    return word, pieces, dtype
+
+
+def read_float_vector(line, shape):
+    line = line.rstrip()
+    pieces = line.rsplit(" ", shape[1])
+    word = pieces.pop(0)
+    return word, pieces
+
+
+def read_binary_vector(line, shape):
+    """Allow loading binarized vectors (https://github.com/tca19/near-lossless-binarization)
+    if the binary vectors have 256 bits and a `long` has a length of 64 bits, then each binary vector is an
+    array of 4 `long` (4 * 64 = 256)"""
+    word, pieces = read_float_vector(line, shape)
+    if ctypes.sizeof(ctypes.c_long) % len(pieces) == 0:
+        binlen = ctypes.sizeof(ctypes.c_long) * 8
+        formatstr = "%sb" % binlen
+        """"Get a list of binary str representations of ints of length binlen
+        replacing spaces with leading zeroes then split each of those strings
+        into a list of 0s and 1s [['0','1'...,'0'],['1','0',...'1']...]"""
+        pieces = [
+            list(format(int(piece), formatstr).replace(" ", "0")) for piece in pieces
+        ]
+        # put them into one big list
+        pieces = numpy.concatenate(pieces)
+    return word, pieces
 
 
 def open_file(loc: Union[str, Path]) -> IO:
