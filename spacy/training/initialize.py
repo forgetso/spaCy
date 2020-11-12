@@ -12,6 +12,7 @@ import ctypes
 
 from ..lookups import Lookups
 from ..vectors import Vectors
+from ..vectorsbin import VectorsBin
 from ..errors import Errors
 from ..schemas import ConfigSchemaTraining
 from ..util import registry, load_model_from_config, resolve_dot_names, logger
@@ -200,7 +201,8 @@ def convert_vectors(
                 if word not in nlp.vocab:
                     nlp.vocab[word]
         if vectors_data is not None:
-            nlp.vocab.vectors = Vectors(data=vectors_data, keys=vector_keys)
+            vectors_cls = vectors_class(vectors_data.dtype)
+            nlp.vocab.vectors = vectors_cls(data=vectors_data, keys=vector_keys)
     if name is None:
         # TODO: Is this correct? Does this matter?
         nlp.vocab.vectors.name = f"{nlp.meta['lang']}_{nlp.meta['name']}.vectors"
@@ -209,6 +211,13 @@ def convert_vectors(
     nlp.meta["vectors"]["name"] = nlp.vocab.vectors.name
     if prune >= 1:
         nlp.vocab.prune_vectors(prune)
+
+
+def vectors_class(dtype):
+    if dtype == numpy.float:
+        return Vectors
+    elif dtype == numpy.int8:
+        return VectorsBin
 
 
 def read_vectors(vectors_loc, truncate_vectors=0):
@@ -239,10 +248,10 @@ def read_vectors(vectors_loc, truncate_vectors=0):
 
 def inspect_vector_type(line, shape):
     dtype = "f"
-    word, pieces = read_float_vector(line)
+    word, pieces = read_float_vector(line, shape)
     length = len(pieces)
     if length != shape[1]:
-        word, pieces = read_binary_vector(line)
+        word, pieces = read_binary_vector(line, shape)
         if len(pieces) == shape[1]:
             dtype = numpy.int8
     return word, pieces, dtype

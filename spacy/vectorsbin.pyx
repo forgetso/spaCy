@@ -1,6 +1,5 @@
 cimport numpy as np
 from cython.operator cimport dereference as deref
-from cython import numeric
 from libcpp.set cimport set as cppset
 import uuid
 import functools
@@ -18,7 +17,7 @@ import sys
 import gc
 
 def unpickle_vectors(bytes_data):
-    return Vectors().from_bytes(bytes_data)
+    return VectorsBin().from_bytes(bytes_data)
 
 
 class GlobalRegistry:
@@ -34,7 +33,11 @@ class GlobalRegistry:
     def get(cls, name):
         return cls.data[name]
 
-cdef class Vectors:
+ctypedef fused int_or_long:
+    int
+    long
+
+cdef class VectorsBin:
     """Store, save and load word vectors.
 
     Vectors data is kept in the vectors.data attribute, which should be an
@@ -51,7 +54,7 @@ cdef class Vectors:
 
     cdef public object name
     cdef public object shm
-    cdef public float[:,:] data
+    cdef public np.int8_t[:,:] data
     cdef public object key2row
     cdef public object __vectors_shared_name
     cdef public object __vectors_shared_shape
@@ -76,7 +79,7 @@ cdef class Vectors:
         self.__vectors_shared_dtype = None
 
         if dtype is None:
-            dtype = "f"
+            dtype = numpy.int8
         if data is None:
             if shape is None:
                 shape = (0,0)

@@ -340,7 +340,7 @@ def load_model_from_path(
         meta = get_model_meta(model_path)
     config_path = model_path / "config.cfg"
     config = load_config(config_path, overrides=dict_to_dot(config))
-    nlp, _ = load_model_from_config(config, vocab=vocab, disable=disable, exclude=exclude, shared=shared)
+    nlp = load_model_from_config(config, vocab=vocab, disable=disable, exclude=exclude, shared=shared)
     return nlp.from_disk(model_path, exclude=disable)
 
 

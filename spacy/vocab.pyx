@@ -15,6 +15,7 @@ from .compat import copy_reg
 from .errors import Errors
 from .attrs import intify_attrs, NORM, IS_STOP
 from .vectors import Vectors
+from .vectorsbin import VectorsBin
 from .util import registry
 from .lookups import Lookups
 from . import util
@@ -22,7 +23,7 @@ from .lang.norm_exceptions import BASE_NORMS
 from .lang.lex_attrs import LEX_ATTRS, is_stop, get_lang
 
 
-def create_vocab(lang, defaults, vectors_name=None, shared=None):
+def create_vocab(lang, defaults, vectors_name=None, shared=None, binary=None):
     # If the spacy-lookups-data package is installed, we pre-populate the lookups
     # with lexeme data, if available
     lex_attrs = {**LEX_ATTRS, **defaults.lex_attr_getters}
@@ -39,7 +40,8 @@ def create_vocab(lang, defaults, vectors_name=None, shared=None):
         writing_system=defaults.writing_system,
         get_noun_chunks=defaults.syntax_iterators.get("noun_chunks"),
         vectors_name=vectors_name,
-        shared=shared
+        shared=shared,
+        binary=binary
     )
 
 
@@ -52,7 +54,8 @@ cdef class Vocab:
     """
     def __init__(self, lex_attr_getters=None, strings=tuple(), lookups=None,
                  oov_prob=-20., vectors_name=None, writing_system={},
-                 get_noun_chunks=None, shared=None,data=None, **deprecated_kwargs):
+                 get_noun_chunks=None, shared=None, data=None, binary=None,
+                 **deprecated_kwargs):
         """Create the vocabulary.
 
         lex_attr_getters (dict): A dictionary mapping attribute IDs to
@@ -76,7 +79,10 @@ cdef class Vocab:
                 _ = self[string]
         self.lex_attr_getters = lex_attr_getters
         self.morphology = Morphology(self.strings)
-        self.vectors = Vectors(name=vectors_name, shared=shared, data=data)
+        if binary:
+            self.vectors = VectorsBin(name=vectors_name, shared=shared, data=data)
+        else:
+            self.vectors = Vectors(name=vectors_name, shared=shared, data=data)
         self.lookups = lookups
         self.writing_system = writing_system
         self.get_noun_chunks = get_noun_chunks
@@ -277,10 +283,16 @@ cdef class Vocab:
         if width is not None and shape is not None:
             raise ValueError(Errors.E065.format(width=width, shape=shape))
         elif shape is not None:
-            self.vectors = Vectors(shape=shape, dtype=dtype)
+            self.vectors = self.vectors_class(dtype)(shape=shape, dtype=dtype)
         else:
             width = width if width is not None else self.vectors.data.shape[1]
-            self.vectors = Vectors(shape=(self.vectors.shape[0], width), dtype=dtype)
+            self.vectors = self.vectors_class(dtype)(shape=(self.vectors.shape[0], width), dtype=dtype)
+
+    def vectors_class(self, dtype):
+        if dtype.startswith("f"):
+            return Vectors
+        elif dtype.startswith("int8"):
+            return VectorsBin
 
     def prune_vectors(self, nr_row, batch_size=1024):
         """Reduce the current vector table to `nr_row` unique entries. Words

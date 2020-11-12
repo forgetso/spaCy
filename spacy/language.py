@@ -154,12 +154,13 @@ class Language:
         self._pipe_meta: Dict[str, "FactoryMeta"] = {}  # meta by component
         self._pipe_configs: Dict[str, Config] = {}  # config by component
         self.shared = kwargs.get('shared')
+        self.binary = kwargs.get('binary')
 
         if not isinstance(vocab, Vocab) and vocab is not True:
             raise ValueError(Errors.E918.format(vocab=vocab, vocab_type=type(Vocab)))
         if vocab is True:
             vectors_name = meta.get("vectors", {}).get("name")
-            vocab = create_vocab(self.lang, self.Defaults, vectors_name=vectors_name, shared=self.shared)
+            vocab = create_vocab(self.lang, self.Defaults, vectors_name=vectors_name, shared=self.shared, binary=self.binary)
         else:
             if (self.lang and vocab.lang) and (self.lang != vocab.lang):
                 raise ValueError(Errors.E150.format(nlp=self.lang, vocab=vocab.lang))
@@ -1574,7 +1575,8 @@ class Language:
         # then we would load them twice at runtime: once when we make from config,
         # and then again when we load from disk. One EXCEPTION is when shared contains
         # a reference to a shared memory for vectors. These are assigned at initialisation.
-        nlp = lang_cls(vocab=vocab, create_tokenizer=create_tokenizer, shared=shared, meta=meta)
+        binary = config['initialize'].get('binary')
+        nlp = lang_cls(vocab=vocab, create_tokenizer=create_tokenizer, shared=shared, meta=meta, binary=binary)
         if after_creation is not None:
             nlp = after_creation(nlp)
             if not isinstance(nlp, cls):
