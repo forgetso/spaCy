@@ -1,5 +1,6 @@
 cimport numpy as np
 from cython.operator cimport dereference as deref
+from cython import numeric
 from libcpp.set cimport set as cppset
 import uuid
 import functools
@@ -33,6 +34,9 @@ class GlobalRegistry:
     def get(cls, name):
         return cls.data[name]
 
+ctypedef fused int_or_long:
+    int
+    long
 
 cdef class Vectors:
     """Store, save and load word vectors.
@@ -48,16 +52,18 @@ cdef class Vectors:
 
     DOCS: https://nightly.spacy.io/api/vectors
     """
+
     cdef public object name
     cdef public object shm
-    cdef public float[:, :] data
+    cdef public int_or_long[:,:] data
     cdef public object key2row
     cdef public object __vectors_shared_name
     cdef public object __vectors_shared_shape
     cdef public object __vectors_shared_dtype
     cdef cppset[int] _unset
 
-    def __init__(self, *, shape=None, data=None, keys=None, name=None, shared=None):
+
+    def __init__(self, *, shape=None, data=None, keys=None, name=None, shared=None, dtype=None):
         """Create a new vector store.
 
         shape (tuple): Size of the table, as (# entries, # columns)
@@ -73,10 +79,12 @@ cdef class Vectors:
         self.__vectors_shared_shape = None
         self.__vectors_shared_dtype = None
 
+        if dtype is None:
+            dtype = "f"
         if data is None:
             if shape is None:
                 shape = (0,0)
-            data = numpy.zeros(shape, dtype="f")
+            data = numpy.zeros(shape, dtype=dtype)
         self.data = data
 
         if shared is not None:
@@ -368,9 +376,7 @@ cdef class Vectors:
         scores = xp.zeros((queries.shape[0], n), dtype='f')
 
         # choose the right type of similarity score based on dtype
-        similarity_fn = self.similarity_float
-        if self.data.dtype == xp.int8:
-            similarity_fn = self.similarity_binary
+        similarity_fn = self._similarity()
 
         # Work in batches, to avoid memory problems.
         for i in range(0, queries.shape[0], batch_size):
@@ -397,7 +403,13 @@ cdef class Vectors:
                     for i in range(len(queries)) ], dtype="uint64")
         return (keys, best_rows, scores)
 
-    def similarity_float(self, xp, batch, vectors):
+    def _similarity(self):
+        sim_fn = self._similarity_float
+        if self.data.dtype == numpy.int8:
+            sim_fn = self._similarity_binary
+        return sim_fn
+
+    def _similarity_float(self, xp, batch, vectors):
         """For each of the given vectors, calculate similarities to batch by
             cosine."""
         batch_norms = xp.linalg.norm(batch, axis=1, keepdims=True)
@@ -409,13 +421,14 @@ cdef class Vectors:
         sims = xp.dot(batch, vectors.T)
         return sims
 
-    def similarity_binary(self, xp, batch, vectors):
+    def _similarity_binary(self, xp, vec1, vec2):
         """For each of the given vectors, calculate similarities to batch by
             Sokal Michener similarity."""
-        vector_size = batch.shape[1]
-        ones = xp.dot(batch , vectors.T)
-        zeroes = (xp.dot((1.0 - batch) , (1.0 - vectors.T)))
-        return (ones + zeroes) / vector_size
+        ntt = xp.dot(vec1, vec2.T)
+        ntf = xp.dot(vec1, 1 - vec2.T)
+        nff = xp.dot((1.0 - vec1), (1.0 - vec2.T))
+        nft = xp.dot((1.0 - vec1), vec2.T)
+        return (ntt + nff) / (ntt + ntf + nff + nft)
 
     def to_disk(self, path, **kwargs):
         """Save the current state to a directory.
