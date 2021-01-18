@@ -203,7 +203,6 @@ def convert_vectors(
         if vectors_data is not None:
             if vectors_data.dtype == numpy.int8:
                 vectors_data = vectors_data.astype(numpy.uint8)
-            print(vectors_data.dtype)
             vectors_cls = vectors_class(vectors_data.dtype)
             nlp.vocab.vectors = vectors_cls(data=vectors_data, keys=vector_keys)
     if name is None:
@@ -219,11 +218,9 @@ def convert_vectors(
 def vectors_class(dtype):
     if dtype in (numpy.float32, numpy.float_):
         return Vectors
-        print('LOADING FLOAT')
     #TODO add classes for different data types depending on length of vectors
     #   uint8 will only handle vectors values 0..255
     elif dtype == numpy.uint8:
-        print('LOADING BINARY')
         return VectorsBin
 
 
