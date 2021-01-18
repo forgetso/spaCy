@@ -291,7 +291,7 @@ cdef class Vocab:
     def vectors_class(self, dtype):
         if dtype.startswith("f"):
             return Vectors
-        elif dtype.startswith("int8"):
+        elif dtype.startswith("uint8"):
             return VectorsBin
 
     def prune_vectors(self, nr_row, batch_size=1024):

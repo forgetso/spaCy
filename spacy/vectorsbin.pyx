@@ -54,7 +54,7 @@ cdef class VectorsBin:
 
     cdef public object name
     cdef public object shm
-    cdef public np.int8_t[:,:] data
+    cdef public np.uint8_t[:,:] data
     cdef public object key2row
     cdef public object __vectors_shared_name
     cdef public object __vectors_shared_shape
@@ -79,7 +79,7 @@ cdef class VectorsBin:
         self.__vectors_shared_dtype = None
 
         if dtype is None:
-            dtype = numpy.int8
+            dtype = numpy.uint8
         if data is None:
             if shape is None:
                 shape = (0,0)
@@ -346,7 +346,7 @@ cdef class VectorsBin:
         lock.release()
         return row
 
-    def most_similar(self, queries, *, batch_size=1024, n=1, sort=True):
+    def most_similar(self, queries, *, batch_size=1024, n=1, sort=True, data=None):
         """For each of the given vectors, find the n most similar entries
         to it, by cosine.
 
@@ -365,17 +365,23 @@ cdef class VectorsBin:
         filled = sorted(list({row for row in self.key2row.values()}))
         if len(filled) < n:
             raise ValueError(Errors.E198.format(n=n, n_rows=len(filled)))
+        # defaults to model data array type (numpy)
         xp = get_array_module(self.data.base)
+        # takes an optional data array
+        if data is not None:
+            xp = get_array_module(data)
+        else:
+            # otherwise defaults to the model vectors
+            data = self.data.base
 
-        norms = xp.linalg.norm(self.data.base[filled], axis=1, keepdims=True)
-        norms[norms == 0] = 1
-        vectors = self.data.base[filled] / norms
-
+        vectors = data[filled]
         best_rows = xp.zeros((queries.shape[0], n), dtype='i')
         scores = xp.zeros((queries.shape[0], n), dtype='f')
 
+
         # choose the right type of similarity score based on dtype
         similarity_fn = self._similarity()
+        print('sim function {}'.format(similarity_fn))
 
         # Work in batches, to avoid memory problems.
         for i in range(0, queries.shape[0], batch_size):
@@ -389,22 +395,31 @@ cdef class VectorsBin:
                 sorted_index = xp.arange(scores.shape[0])[:,None][i:i+batch_size],xp.argsort(scores[i:i+batch_size], axis=1)[:,::-1]
                 scores[i:i+batch_size] = scores[sorted_index]
                 best_rows[i:i+batch_size] = best_rows[sorted_index]
+            self.free_gpu_memory(xp)
 
+        best_rows = self.as_numpy(xp, best_rows)
         for i, j in numpy.ndindex(best_rows.shape):
             best_rows[i, j] = filled[best_rows[i, j]]
+        self.free_gpu_memory(xp)
         # Round values really close to 1 or -1
         scores = xp.around(scores, decimals=4, out=scores)
         # Account for numerical error we want to return in range -1, 1
         scores = xp.clip(scores, a_min=-1, a_max=1, out=scores)
+        scores = self.as_numpy(xp, scores)
         row2key = {row: key for key, row in self.key2row.items()}
         keys = xp.asarray(
             [[row2key[row] for row in best_rows[i] if row in row2key]
                     for i in range(len(queries)) ], dtype="uint64")
+
+        if len(keys):
+            keys = xp.array([self.as_numpy(xp, key) for key in keys])
+            keys = self.as_numpy(xp, keys)
+
         return (keys, best_rows, scores)
 
     def _similarity(self):
         sim_fn = self._similarity_float
-        if self.data.dtype == numpy.int8:
+        if self.data.base.dtype == numpy.uint8:
             sim_fn = self._similarity_binary
         return sim_fn
 
@@ -421,13 +436,30 @@ cdef class VectorsBin:
         return sims
 
     def _similarity_binary(self, xp, vec1, vec2):
-        """For each of the given vectors, calculate similarities to batch by
-            Sokal Michener similarity."""
-        ntt = xp.dot(vec1, vec2.T)
-        ntf = xp.dot(vec1, 1 - vec2.T)
-        nff = xp.dot((1.0 - vec1), (1.0 - vec2.T))
-        nft = xp.dot((1.0 - vec1), vec2.T)
-        return (ntt + nff) / (ntt + ntf + nff + nft)
+        """Calculate Sokal Michener similarity."""
+        one = xp.uint8(1)
+        # allows for vectors of shape (x,)
+        try:
+            n = xp.float16(vec1.shape[1])
+        except IndexError:
+            n = xp.float16(vec1.shape[0])
+        return (xp.dot(vec1, vec2.T) + xp.dot((one - vec1), (one - vec2.T))) / n
+
+    def free_gpu_memory(self, xp):
+        try:
+            mempool = xp.get_default_memory_pool()
+            pinnedmempool = xp.get_default_pinned_memory_pool()
+            mempool.free_all_blocks()
+            pinnedmempool.free_all_blocks()
+        except AttributeError:
+            pass
+
+    def as_numpy(self, xp, arr):
+        try:
+            arr = xp.asnumpy(arr)
+        except AttributeError:
+            pass
+        return arr
 
     def to_disk(self, path, **kwargs):
         """Save the current state to a directory.

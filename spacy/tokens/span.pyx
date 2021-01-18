@@ -316,7 +316,7 @@ cdef class Span:
 
     def _similarity(self):
         sim_fn = self._similarity_float
-        if self.vocab.vectors_dtype == numpy.int8:
+        if self.vocab.vectors_dtype == numpy.uint8:
             sim_fn = self._similarity_binary
         return sim_fn
 
@@ -324,14 +324,15 @@ cdef class Span:
         """Calculate cosine similarity."""
         return xp.dot(vector, other.vector) / (self.vector_norm * other.vector_norm)
 
-    def _similarity_binary(self, xp, vec1, other):
+    def _similarity_binary(self, xp, vec1, vec2):
         """Calculate Sokal Michener similarity."""
-        vec2 = other.vector
-        ntt = xp.dot(vec1, vec2.T)
-        ntf = xp.dot(vec1, 1 - vec2.T)
-        nff = xp.dot((1.0 - vec1), (1.0 - vec2.T))
-        nft = xp.dot((1.0 - vec1), vec2.T)
-        return (ntt + nff) / (ntt + ntf + nff + nft)
+        one = xp.uint8(1)
+        # allows for vectors of shape (x,)
+        try:
+            n = xp.float16(vec1.shape[1])
+        except IndexError:
+            n = xp.float16(vec1.shape[0])
+        return (xp.dot(vec1, vec2.T) + xp.dot((one - vec1), (one - vec2.T))) / n
 
     cpdef np.ndarray to_array(self, object py_attr_ids):
         """Given a list of M attribute IDs, export the tokens to a numpy

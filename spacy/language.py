@@ -1504,6 +1504,7 @@ class Language:
         auto_fill: bool = True,
         validate: bool = True,
         shared: dict = None,
+        binary: bool = None
     ) -> "Language":
         """Create the nlp object from a loaded config. Will set up the tokenizer
         and language data, add pipeline components etc. If no config is provided,
@@ -1575,7 +1576,12 @@ class Language:
         # then we would load them twice at runtime: once when we make from config,
         # and then again when we load from disk. One EXCEPTION is when shared contains
         # a reference to a shared memory for vectors. These are assigned at initialisation.
-        binary = config['initialize'].get('binary')
+        # TODO set binary in configs by default
+        try:
+            binary = config.get('initialize', {}).get('binary')
+        except KeyError:
+            binary = None
+            pass
         nlp = lang_cls(vocab=vocab, create_tokenizer=create_tokenizer, shared=shared, meta=meta, binary=binary)
         if after_creation is not None:
             nlp = after_creation(nlp)

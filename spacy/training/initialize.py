@@ -201,6 +201,9 @@ def convert_vectors(
                 if word not in nlp.vocab:
                     nlp.vocab[word]
         if vectors_data is not None:
+            if vectors_data.dtype == numpy.int8:
+                vectors_data = vectors_data.astype(numpy.uint8)
+            print(vectors_data.dtype)
             vectors_cls = vectors_class(vectors_data.dtype)
             nlp.vocab.vectors = vectors_cls(data=vectors_data, keys=vector_keys)
     if name is None:
@@ -214,9 +217,13 @@ def convert_vectors(
 
 
 def vectors_class(dtype):
-    if dtype == numpy.float:
+    if dtype in (numpy.float32, numpy.float_):
         return Vectors
-    elif dtype == numpy.int8:
+        print('LOADING FLOAT')
+    #TODO add classes for different data types depending on length of vectors
+    #   uint8 will only handle vectors values 0..255
+    elif dtype == numpy.uint8:
+        print('LOADING BINARY')
         return VectorsBin
 
 
@@ -227,13 +234,11 @@ def read_vectors(vectors_loc, truncate_vectors=0):
     if truncate_vectors >= 1:
         shape = (truncate_vectors, shape[1])
     # inspect the first line to see if the vectors are float or binary format
-    word, pieces, dtype = inspect_vector_type(next(f), shape)
+    word, pieces, dtype, read_vector = inspect_vector_type(next(f), shape)
     vectors_data = numpy.zeros(shape=shape, dtype=dtype)
     vectors_data[0] = numpy.asarray(pieces, dtype=dtype)
     vectors_keys = [word]
-    read_vector = read_float_vector
-    if dtype == numpy.int8:
-        read_vector = read_binary_vector
+
     for i, line in enumerate(tqdm.tqdm(f)):
         line_num = i + 1
         word, pieces = read_vector(line, shape)
@@ -250,11 +255,13 @@ def inspect_vector_type(line, shape):
     dtype = "f"
     word, pieces = read_float_vector(line, shape)
     length = len(pieces)
+    read_vector = read_float_vector
     if length != shape[1]:
         word, pieces = read_binary_vector(line, shape)
         if len(pieces) == shape[1]:
-            dtype = numpy.int8
-    return word, pieces, dtype
+            dtype = numpy.uint8
+            read_vector = read_binary_vector
+    return word, pieces, dtype, read_vector
 
 
 def read_float_vector(line, shape):
@@ -279,7 +286,7 @@ def read_binary_vector(line, shape):
             list(format(int(piece), formatstr).replace(" ", "0")) for piece in pieces
         ]
         # put them into one big list
-        pieces = numpy.concatenate(pieces)
+        pieces = numpy.concatenate(pieces).astype(numpy.uint8)
     return word, pieces
 
 

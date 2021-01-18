@@ -352,7 +352,7 @@ def load_model_from_config(
     exclude: Iterable[str] = SimpleFrozenList(),
     auto_fill: bool = False,
     validate: bool = True,
-    shared: dict = None
+    shared: dict = None,
 ) -> "Language":
     """Create an nlp object from a config. Expects the full config file including
     a section "nlp" containing the settings for the nlp object.
@@ -385,7 +385,7 @@ def load_model_from_config(
         exclude=exclude,
         auto_fill=auto_fill,
         validate=validate,
-        shared=shared
+        shared=shared,
     )
     return nlp
 

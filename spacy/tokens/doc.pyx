@@ -580,7 +580,7 @@ cdef class Doc:
 
     def _similarity(self):
         sim_fn = self._similarity_float
-        if self.vocab.vectors_dtype == numpy.int8:
+        if self.vocab.vectors_dtype == numpy.uint8:
             sim_fn = self._similarity_binary
         return sim_fn
 
@@ -590,12 +590,14 @@ cdef class Doc:
 
     def _similarity_binary(self, xp, vec1, other):
         """Calculate Sokal Michener similarity."""
+        one = xp.uint8(1)
         vec2 = other.vector
-        ntt = xp.dot(vec1, vec2.T)
-        ntf = xp.dot(vec1, 1 - vec2.T)
-        nff = xp.dot((1.0 - vec1), (1.0 - vec2.T))
-        nft = xp.dot((1.0 - vec1), vec2.T)
-        return (ntt + nff) / (ntt + ntf + nff + nft)
+        # allows for vectors of shape (x,)
+        try:
+            n = xp.float16(vec1.shape[1])
+        except IndexError:
+            n = xp.float16(vec1.shape[0])
+        return (xp.dot(vec1, vec2) + xp.dot((one - vec1), (one - vec2))) / n
 
     @property
     def has_vector(self):
@@ -635,6 +637,7 @@ cdef class Doc:
                 return self._vector
             elif self.vocab.vectors.data.size > 0:
                 self._vector = sum(t.vector for t in self) / len(self)
+                self._vector = self._vector.astype(self.vocab.vectors_dtype)
                 return self._vector.astype(self.vocab.vectors_dtype)
             elif self.tensor.size > 0:
                 self._vector = self.tensor.mean(axis=0)
