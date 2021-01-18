@@ -25,6 +25,10 @@ if TYPE_CHECKING:
 def init_nlp(config: Config, *, use_gpu: int = -1) -> "Language":
     raw_config = config
     config = raw_config.interpolate()
+    if "seed" not in config["training"]:
+        raise ValueError(Errors.E1015.format(value="[training] seed"))
+    if "gpu_allocator" not in config["training"]:
+        raise ValueError(Errors.E1015.format(value="[training] gpu_allocator"))
     if config["training"]["seed"] is not None:
         fix_random_seed(config["training"]["seed"])
     allocator = config["training"]["gpu_allocator"]
@@ -113,7 +117,7 @@ def load_vectors_into_model(
             "with the packaged vectors. Make sure that the vectors package you're "
             "loading is compatible with the current version of spaCy."
         )
-        err = ConfigValidationError.from_error(e, config=None, title=title, desc=desc)
+        err = ConfigValidationError.from_error(e, title=title, desc=desc)
         raise err from None
     nlp.vocab.vectors = vectors_nlp.vocab.vectors
     if add_strings:

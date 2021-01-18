@@ -323,6 +323,9 @@ cdef class Vocab:
         """
         xp = get_array_module(self.vectors.data.base)
         # Make prob negative so it sorts by rank ascending
+        for orth in self.vectors:
+            self[orth]
+        # Make prob negative so it sorts by rank ascending
         # (key2row contains the rank)
         priority = [(-lex.prob, self.vectors.key2row[lex.orth], lex.orth)
                     for lex in self if lex.orth in self.vectors.key2row]

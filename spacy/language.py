@@ -121,6 +121,7 @@ class Language:
         max_length: int = 10 ** 6,
         meta: Dict[str, Any] = {},
         create_tokenizer: Optional[Callable[["Language"], Callable[[str], Doc]]] = None,
+        batch_size: int = 1000,
         **kwargs,
     ) -> None:
         """Initialise a Language object.
@@ -138,6 +139,7 @@ class Language:
             100,000 characters in one text.
         create_tokenizer (Callable): Function that takes the nlp object and
             returns a tokenizer.
+        batch_size (int): Default batch size for pipe and evaluate.
 
         DOCS: https://nightly.spacy.io/api/language#init
         """
@@ -175,6 +177,7 @@ class Language:
             tokenizer_cfg = {"tokenizer": self._config["nlp"]["tokenizer"]}
             create_tokenizer = registry.resolve(tokenizer_cfg)["tokenizer"]
         self.tokenizer = create_tokenizer(self)
+        self.batch_size = batch_size
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -696,6 +699,8 @@ class Language:
         source_config = source.config.interpolate()
         pipe_config = util.copy_config(source_config["components"][source_name])
         self._pipe_configs[name] = pipe_config
+        for s in source.vocab.strings:
+            self.vocab.strings.add(s)
         return pipe, pipe_config["factory"]
 
     def add_pipe(
@@ -970,10 +975,6 @@ class Language:
 
         DOCS: https://nightly.spacy.io/api/language#call
         """
-        if len(text) > self.max_length:
-            raise ValueError(
-                Errors.E088.format(length=len(text), max_length=self.max_length)
-            )
         doc = self.make_doc(text)
         if component_cfg is None:
             component_cfg = {}
@@ -1047,6 +1048,11 @@ class Language:
         text (str): The text to process.
         RETURNS (Doc): The processed doc.
         """
+        if len(text) > self.max_length:
+            raise ValueError(
+                Errors.E088.format(length=len(text), max_length=self.max_length)
+            )
+        return self.tokenizer(text)
         return self.tokenizer(text)
 
     def update(
@@ -1207,6 +1213,9 @@ class Language:
         config = self.config.interpolate()
         # These are the settings provided in the [initialize] block in the config
         I = registry.resolve(config["initialize"], schema=ConfigSchemaInit)
+        before_init = I["before_init"]
+        if before_init is not None:
+            before_init(self)
         init_vocab(
             self, data=I["vocab_data"], lookups=I["lookups"], vectors=I["vectors"]
         )
@@ -1238,6 +1247,9 @@ class Language:
             self._optimizer = sgd
         elif self._optimizer is None:
             self._optimizer = self.create_optimizer()
+        after_init = I["after_init"]
+        if after_init is not None:
+            after_init(self)
         return self._optimizer
 
     def resume_training(self, *, sgd: Optional[Optimizer] = None) -> Optimizer:
@@ -1269,7 +1281,7 @@ class Language:
         self,
         examples: Iterable[Example],
         *,
-        batch_size: int = 256,
+        batch_size: Optional[int] = None,
         scorer: Optional[Scorer] = None,
         component_cfg: Optional[Dict[str, Dict[str, Any]]] = None,
         scorer_cfg: Optional[Dict[str, Any]] = None,
@@ -1277,7 +1289,7 @@ class Language:
         """Evaluate a model's pipeline components.
 
         examples (Iterable[Example]): `Example` objects.
-        batch_size (int): Batch size to use.
+        batch_size (Optional[int]): Batch size to use.
         scorer (Optional[Scorer]): Scorer to use. If not passed in, a new one
             will be created.
         component_cfg (dict): An optional dictionary with extra keyword
@@ -1288,7 +1300,10 @@ class Language:
 
         DOCS: https://nightly.spacy.io/api/language#evaluate
         """
+        examples = list(examples)
         validate_examples(examples, "Language.evaluate")
+        if batch_size is None:
+            batch_size = self.batch_size
         if component_cfg is None:
             component_cfg = {}
         if scorer_cfg is None:
@@ -1297,27 +1312,21 @@ class Language:
             kwargs = dict(scorer_cfg)
             kwargs.setdefault("nlp", self)
             scorer = Scorer(**kwargs)
-        texts = [eg.reference.text for eg in examples]
-        docs = [eg.predicted for eg in examples]
+        # reset annotation in predicted docs and time tokenization
         start_time = timer()
-        # tokenize the texts only for timing purposes
-        if not hasattr(self.tokenizer, "pipe"):
-            _ = [self.tokenizer(text) for text in texts]  # noqa: F841
-        else:
-            _ = list(self.tokenizer.pipe(texts))  # noqa: F841
+        for eg in examples:
+            eg.predicted = self.make_doc(eg.reference.text)
+        # apply all pipeline components
         for name, pipe in self.pipeline:
             kwargs = component_cfg.get(name, {})
             kwargs.setdefault("batch_size", batch_size)
-            docs = _pipe(docs, pipe, kwargs)
-        # iterate over the final generator
-        if len(self.pipeline):
-            docs = list(docs)
+            for doc, eg in zip(
+                _pipe((eg.predicted for eg in examples), pipe, kwargs), examples
+            ):
+                eg.predicted = doc
         end_time = timer()
-        for i, (doc, eg) in enumerate(zip(docs, examples)):
-            util.logger.debug(doc)
-            eg.predicted = doc
         results = scorer.score(examples)
-        n_words = sum(len(doc) for doc in docs)
+        n_words = sum(len(eg.predicted) for eg in examples)
         results["speed"] = n_words / (end_time - start_time)
         return results
 
@@ -1367,7 +1376,7 @@ class Language:
         texts: Iterable[str],
         *,
         as_tuples: bool = False,
-        batch_size: int = 1000,
+        batch_size: Optional[int] = None,
         disable: Iterable[str] = SimpleFrozenList(),
         component_cfg: Optional[Dict[str, Dict[str, Any]]] = None,
         n_process: int = 1,
@@ -1378,7 +1387,7 @@ class Language:
         as_tuples (bool): If set to True, inputs should be a sequence of
             (text, context) tuples. Output will then be a sequence of
             (doc, context) tuples. Defaults to False.
-        batch_size (int): The number of texts to buffer.
+        batch_size (Optional[int]): The number of texts to buffer.
         disable (List[str]): Names of the pipeline components to disable.
         component_cfg (Dict[str, Dict]): An optional dictionary with extra keyword
             arguments for specific components.
@@ -1405,6 +1414,8 @@ class Language:
             return
         if component_cfg is None:
             component_cfg = {}
+        if batch_size is None:
+            batch_size = self.batch_size
 
         pipes = (
             []
@@ -1621,13 +1632,12 @@ class Language:
                     if model not in source_nlps:
                         # We only need the components here and we need to init
                         # model with the same vocab as the current nlp object
-                        source_nlps[model] = util.load_model(
-                            model, vocab=nlp.vocab, disable=["vocab", "tokenizer"]
-                        )
+                        source_nlps[model] = util.load_model(model, vocab=nlp.vocab)
                     source_name = pipe_cfg.get("component", pipe_name)
                     nlp.add_pipe(source_name, source=source_nlps[model], name=pipe_name)
         disabled_pipes = [*config["nlp"]["disabled"], *disable]
         nlp._disabled = set(p for p in disabled_pipes if p not in exclude)
+        nlp.batch_size = config["nlp"]["batch_size"]
         nlp.config = filled if auto_fill else config
         if after_pipeline_creation is not None:
             nlp = after_pipeline_creation(nlp)
