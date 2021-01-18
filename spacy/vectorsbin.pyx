@@ -381,7 +381,6 @@ cdef class VectorsBin:
 
         # choose the right type of similarity score based on dtype
         similarity_fn = self._similarity()
-        print('sim function {}'.format(similarity_fn))
 
         # Work in batches, to avoid memory problems.
         for i in range(0, queries.shape[0], batch_size):
