@@ -56,9 +56,10 @@ on the transformer architectures and their arguments and hyperparameters.
 > #### Example
 >
 > ```python
-> from spacy_transformers import Transformer, DEFAULT_CONFIG
+> from spacy_transformers import Transformer
+> from spacy_transformers.pipeline_component import DEFAULT_CONFIG
 >
-> nlp.add_pipe("transformer", config=DEFAULT_CONFIG)
+> nlp.add_pipe("transformer", config=DEFAULT_CONFIG["transformer"])
 > ```
 
 | Setting                 | Description                                                                                                                                                                                                                                                                                                   |
@@ -249,7 +250,6 @@ and call the optimizer, while the others simply increment the gradients.
 | `examples`        | A batch of [`Example`](/api/example) objects. Only the [`Example.predicted`](/api/example#predicted) `Doc` object is used, the reference `Doc` is ignored. ~~Iterable[Example]~~ |
 | _keyword-only_    |                                                                                                                                                                                  |
 | `drop`            | The dropout rate. ~~float~~                                                                                                                                                      |
-| `set_annotations` | Whether or not to update the `Example` objects with the predictions, delegating to [`set_annotations`](#set_annotations). ~~bool~~                                               |
 | `sgd`             | An optimizer. Will be created via [`create_optimizer`](#create_optimizer) if not set. ~~Optional[Optimizer]~~                                                                    |
 | `losses`          | Optional record of the loss during training. Updated using the component name as the key. ~~Optional[Dict[str, float]]~~                                                         |
 | **RETURNS**       | The updated `losses` dictionary. ~~Dict[str, float]~~                                                                                                                            |

@@ -3,17 +3,15 @@ title: TextCategorizer
 tag: class
 source: spacy/pipeline/textcat.py
 new: 2
-teaser: 'Pipeline component for text classification'
+teaser: 'Pipeline component for single-label text classification'
 api_base_class: /api/pipe
 api_string_name: textcat
 api_trainable: true
 ---
 
 The text categorizer predicts **categories over a whole document**. It can learn
-one or more labels, and the labels can be mutually exclusive (i.e. one true
-label per document) or non-mutually exclusive (i.e. zero or more labels may be
-true per document). The multi-label setting is controlled by the model instance
-that's provided.
+one or more labels, and the labels are mutually exclusive - there is exactly one 
+true label per document. 
 
 ## Config and implementation {#config}
 
@@ -27,10 +25,10 @@ architectures and their arguments and hyperparameters.
 > #### Example
 >
 > ```python
-> from spacy.pipeline.textcat import DEFAULT_TEXTCAT_MODEL
+> from spacy.pipeline.textcat import DEFAULT_SINGLE_TEXTCAT_MODEL
 > config = {
 >    "threshold": 0.5,
->    "model": DEFAULT_TEXTCAT_MODEL,
+>    "model": DEFAULT_SINGLE_TEXTCAT_MODEL,
 > }
 > nlp.add_pipe("textcat", config=config)
 > ```
@@ -203,8 +201,9 @@ Modify a batch of [`Doc`](/api/doc) objects using pre-computed scores.
 
 Learn from a batch of [`Example`](/api/example) objects containing the
 predictions and gold-standard annotations, and update the component's model.
-Delegates to [`predict`](/api/textcategorizer#predict) and
-[`get_loss`](/api/textcategorizer#get_loss).
+Delegates to [`predict`](/api/textcategorizer#predict),
+[`get_loss`](/api/textcategorizer#get_loss) and 
+[`set_annotations`](/api/textcategorizer#set_annotations).
 
 > #### Example
 >
@@ -219,7 +218,6 @@ Delegates to [`predict`](/api/textcategorizer#predict) and
 | `examples`        | A batch of [`Example`](/api/example) objects to learn from. ~~Iterable[Example]~~                                                  |
 | _keyword-only_    |                                                                                                                                    |
 | `drop`            | The dropout rate. ~~float~~                                                                                                        |
-| `set_annotations` | Whether or not to update the `Example` objects with the predictions, delegating to [`set_annotations`](#set_annotations). ~~bool~~ |
 | `sgd`             | An optimizer. Will be created via [`create_optimizer`](#create_optimizer) if not set. ~~Optional[Optimizer]~~                      |
 | `losses`          | Optional record of the loss during training. Updated using the component name as the key. ~~Optional[Dict[str, float]]~~           |
 | **RETURNS**       | The updated `losses` dictionary. ~~Dict[str, float]~~                                                                              |
@@ -280,7 +278,6 @@ Score a batch of examples.
 | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `examples`       | The examples to score. ~~Iterable[Example]~~                                                                         |
 | _keyword-only_   |                                                                                                                      |
-| `positive_label` | Optional positive label. ~~Optional[str]~~                                                                           |
 | **RETURNS**      | The scores, produced by [`Scorer.score_cats`](/api/scorer#score_cats). ~~Dict[str, Union[float, Dict[str, float]]]~~ |
 
 ## TextCategorizer.create_optimizer {#create_optimizer tag="method"}

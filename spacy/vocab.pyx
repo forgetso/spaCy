@@ -306,6 +306,9 @@ cdef class Vocab:
         DOCS: https://nightly.spacy.io/api/vocab#prune_vectors
         """
         xp = get_array_module(self.vectors.data.base)
+        # Make sure all vectors are in the vocab
+        for orth in self.vectors:
+            self[orth]
         # Make prob negative so it sorts by rank ascending
         # (key2row contains the rank)
         priority = [(-lex.prob, self.vectors.key2row[lex.orth], lex.orth)

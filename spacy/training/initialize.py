@@ -23,6 +23,10 @@ if TYPE_CHECKING:
 def init_nlp(config: Config, *, use_gpu: int = -1) -> "Language":
     raw_config = config
     config = raw_config.interpolate()
+    if "seed" not in config["training"]:
+        raise ValueError(Errors.E1015.format(value="[training] seed"))
+    if "gpu_allocator" not in config["training"]:
+        raise ValueError(Errors.E1015.format(value="[training] gpu_allocator"))
     if config["training"]["seed"] is not None:
         fix_random_seed(config["training"]["seed"])
     allocator = config["training"]["gpu_allocator"]
@@ -37,9 +41,17 @@ def init_nlp(config: Config, *, use_gpu: int = -1) -> "Language":
     T = registry.resolve(config["training"], schema=ConfigSchemaTraining)
     dot_names = [T["train_corpus"], T["dev_corpus"]]
     if not isinstance(T["train_corpus"], str):
-        raise ConfigValidationError(desc=Errors.E897.format(field="training.train_corpus", type=type(T["train_corpus"])))
+        raise ConfigValidationError(
+            desc=Errors.E897.format(
+                field="training.train_corpus", type=type(T["train_corpus"])
+            )
+        )
     if not isinstance(T["dev_corpus"], str):
-        raise ConfigValidationError(desc=Errors.E897.format(field="training.dev_corpus", type=type(T["dev_corpus"])))
+        raise ConfigValidationError(
+            desc=Errors.E897.format(
+                field="training.dev_corpus", type=type(T["dev_corpus"])
+            )
+        )
     train_corpus, dev_corpus = resolve_dot_names(config, dot_names)
     optimizer = T["optimizer"]
     # Components that shouldn't be updated during training
@@ -54,6 +66,20 @@ def init_nlp(config: Config, *, use_gpu: int = -1) -> "Language":
     with nlp.select_pipes(disable=[*frozen_components, *resume_components]):
         nlp.initialize(lambda: train_corpus(nlp), sgd=optimizer)
         logger.info(f"Initialized pipeline components: {nlp.pipe_names}")
+    # Detect components with listeners that are not frozen consistently
+    for name, proc in nlp.pipeline:
+        if getattr(proc, "listening_components", None):
+            for listener in proc.listening_components:
+                if listener in frozen_components and name not in frozen_components:
+                    logger.warn(f"Component '{name}' will be (re)trained, but the "
+                                f"'{listener}' depends on it and is frozen. This means "
+                                f"that the performance of the '{listener}' will be degraded. "
+                                f"You should either freeze both, or neither of the two.")
+
+                if listener not in frozen_components and name in frozen_components:
+                    logger.warn(f"Component '{listener}' will be (re)trained, but it needs the "
+                                f"'{name}' which is frozen. "
+                                f"You should either freeze both, or neither of the two.")
     return nlp
 
 
@@ -103,7 +129,7 @@ def load_vectors_into_model(
             "with the packaged vectors. Make sure that the vectors package you're "
             "loading is compatible with the current version of spaCy."
         )
-        err = ConfigValidationError.from_error(e, config=None, title=title, desc=desc)
+        err = ConfigValidationError.from_error(e, title=title, desc=desc)
         raise err from None
     nlp.vocab.vectors = vectors_nlp.vocab.vectors
     if add_strings:

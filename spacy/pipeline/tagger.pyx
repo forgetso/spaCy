@@ -173,14 +173,13 @@ class Tagger(TrainablePipe):
                 if doc.c[j].tag == 0:
                     doc.c[j].tag = self.vocab.strings[self.labels[tag_id]]
 
-    def update(self, examples, *, drop=0., sgd=None, losses=None, set_annotations=False):
+    def update(self, examples, *, drop=0., sgd=None, losses=None):
         """Learn from a batch of documents and gold-standard information,
-        updating the pipe's model. Delegates to predict and get_loss.
+        updating the pipe's model. Delegates to predict, get_loss and
+        set_annotations.
 
         examples (Iterable[Example]): A batch of Example objects.
         drop (float): The dropout rate.
-        set_annotations (bool): Whether or not to update the Example objects
-            with the predictions.
         sgd (thinc.api.Optimizer): The optimizer.
         losses (Dict[str, float]): Optional record of the loss during training.
             Updated using the component name as the key.
@@ -206,9 +205,8 @@ class Tagger(TrainablePipe):
             self.finish_update(sgd)
 
         losses[self.name] += loss
-        if set_annotations:
-            docs = [eg.predicted for eg in examples]
-            self.set_annotations(docs, self._scores2guesses(tag_scores))
+        docs = [eg.predicted for eg in examples]
+        self.set_annotations(docs, self._scores2guesses(tag_scores))
         return losses
 
     def rehearse(self, examples, *, drop=0., sgd=None, losses=None):
@@ -257,7 +255,13 @@ class Tagger(TrainablePipe):
         """
         validate_examples(examples, "Tagger.get_loss")
         loss_func = SequenceCategoricalCrossentropy(names=self.labels, normalize=False)
-        truths = [eg.get_aligned("TAG", as_string=True) for eg in examples]
+        # Convert empty tag "" to missing value None so that both misaligned
+        # tokens and tokens with missing annotation have the default missing
+        # value None.
+        truths = []
+        for eg in examples:
+            eg_truths = [tag if tag is not "" else None for tag in eg.get_aligned("TAG", as_string=True)]
+            truths.append(eg_truths)
         d_scores, loss = loss_func(scores, truths)
         if self.model.ops.xp.isnan(loss):
             raise ValueError(Errors.E910.format(name=self.name))
@@ -295,6 +299,7 @@ class Tagger(TrainablePipe):
             gold_tags = example.get_aligned("TAG", as_string=True)
             gold_array = [[1.0 if tag == gold_tag else 0.0 for tag in self.labels] for gold_tag in gold_tags]
             label_sample.append(self.model.ops.asarray(gold_array, dtype="float32"))
+        self._require_labels()
         assert len(doc_sample) > 0, Errors.E923.format(name=self.name)
         assert len(label_sample) > 0, Errors.E923.format(name=self.name)
         self.model.initialize(X=doc_sample, Y=label_sample)

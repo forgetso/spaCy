@@ -211,6 +211,14 @@ cdef class Token:
         xp = get_array_module(vector)
         return (xp.dot(vector, other.vector) / (self.vector_norm * other.vector_norm))
 
+    def has_morph(self):
+        """Check whether the token has annotated morph information.
+        Return False when the morph annotation is unset/missing.
+
+        RETURNS (bool): Whether the morph annotation is set.
+        """
+        return not self.c.morph == 0
+
     property morph:
         def __get__(self):
             return MorphAnalysis.from_id(self.vocab, self.c.morph)
@@ -638,14 +646,26 @@ cdef class Token:
             return False
         return any(ancestor.i == self.i for ancestor in descendant.ancestors)
 
+    def has_head(self):
+        """Check whether the token has annotated head information.
+        Return False when the head annotation is unset/missing.
+
+        RETURNS (bool): Whether the head annotation is valid or not.
+        """
+        return not Token.missing_head(self.c)
+
     property head:
-        """The syntactic parent, or "governor", of this token.
+        """The syntactic parent, or "governor", of this token. 
+        If token.has_head() is `False`, this method will return itself. 
 
         RETURNS (Token): The token predicted by the parser to be the head of
             the current token.
         """
         def __get__(self):
-            return self.doc[self.i + self.c.head]
+            if not self.has_head():
+                return self
+            else:
+                return self.doc[self.i + self.c.head]
 
         def __set__(self, Token new_head):
             # This function sets the head of self to new_head and updates the
@@ -660,9 +680,8 @@ cdef class Token:
             # Find the widest l/r_edges of the roots of the two tokens involved
             # to limit the number of tokens for set_children_from_heads
             cdef Token self_root, new_head_root
-            self_ancestors = list(self.ancestors)
+            self_root = ([self] + list(self.ancestors))[-1]
             new_head_ancestors = list(new_head.ancestors)
-            self_root = self_ancestors[-1] if self_ancestors else self
             new_head_root = new_head_ancestors[-1] if new_head_ancestors else new_head
             start = self_root.c.l_edge if self_root.c.l_edge < new_head_root.c.l_edge else new_head_root.c.l_edge
             end = self_root.c.r_edge if self_root.c.r_edge > new_head_root.c.r_edge else new_head_root.c.r_edge
@@ -857,6 +876,14 @@ cdef class Token:
 
         def __set__(self, tag):
             self.tag = self.vocab.strings.add(tag)
+
+    def has_dep(self):
+        """Check whether the token has annotated dep information.
+        Returns False when the dep label is unset/missing.
+
+        RETURNS (bool): Whether the dep label is valid or not.
+        """
+        return not Token.missing_dep(self.c)
 
     property dep_:
         """RETURNS (str): The syntactic dependency label."""
